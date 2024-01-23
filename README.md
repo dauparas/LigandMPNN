@@ -1,6 +1,23 @@
 ## LigandMPNN
 
-This package provides inference code for [LigandMPNN](https://www.biorxiv.org/content/10.1101/2023.12.22.573103v1) & [ProteinMPNN](https://www.science.org/doi/10.1126/science.add2187) models. The code and model parameters are available under MIT license.
+This package provides inference code for [LigandMPNN](https://www.biorxiv.org/content/10.1101/2023.12.22.573103v1) & [ProteinMPNN](https://www.science.org/doi/10.1126/science.add2187) models. The code and model parameters are available under the MIT license.
+
+### Running the code
+```
+git clone https://github.com/dauparas/LigandMPNN.git
+cd LigandMPNN
+bash get_model_params.sh "./model_params"
+
+#setup your conda/or other environment
+#conda create -n ligandmpnn_env python=3.11
+#pip3 install torch
+#pip install prody
+
+python run.py \
+        --seed 111 \
+        --pdb_path "./inputs/1BC8.pdb" \
+        --out_folder "./outputs/default"
+```
 
 ### Dependencies
 To run the model you will need to have Python>=3.0, PyTorch, Numpy installed, and to read/write PDB files you will need [Prody](https://pypi.org/project/ProDy/).
@@ -11,6 +28,12 @@ conda create -n ligandmpnn_env python=3.11
 pip3 install torch
 pip install prody
 ```
+
+### Main differences compared with [ProteinMPNN](https://github.com/dauparas/ProteinMPNN) code
+- Input PDBs are parsed using [Prody](https://pypi.org/project/ProDy/) preserving protein residue indices, chain letters, and insertion codes. If there are missing residues in the input structure the output fasta file won't have added `X` to fill the gaps. The script outputs .fasta and .pdb files. It's recommended to use .pdb files since they will hold information about chain letters and residue indices.
+- Adding bias, fixing residues, and selecting residues to be redesigned now can be done using residue indices directly, e.g. A23 (means chain A residue with index 23), B42D (chain B, residue 42, insertion code D).
+- Model writes to fasta files: `overall_confidence`, `ligand_confidence` which reflect the average confidence/probability (with T=1.0) over the redesigned residues  `overall_confidence=exp[-mean_over_residues(log_probs)]`. Higher numbers mean the model is more confident about that sequence. min_value=0.0; max_value=1.0. Sequence recovery with respect to the input sequence is calculated only over the redesigned residues.
+
 ### Model parameters
 To download model parameters run:
 ```
@@ -19,7 +42,7 @@ bash get_model_params.sh "./model_params"
 
 ### Available models
 
-To run the model of your choice run specify `--model_type` and optionally model checkpoint path. Available models:
+To run the model of your choice specify `--model_type` and optionally the model checkpoint path. Available models:
 - ProteinMPNN
 ```
 --model_type "protein_mpnn"
@@ -57,7 +80,7 @@ To run the model of your choice run specify `--model_type` and optionally model 
 
 ## Examples
 ### 1 default
-Default setting will run ProteinMPNN.
+Default settings will run ProteinMPNN.
 ```
 python run.py \
         --seed 111 \
@@ -74,7 +97,7 @@ python run.py \
         --out_folder "./outputs/temperature"
 ```
 ### 3 --seed
-`--seed` Not selecting seed will run with a random seed. Running this multiple times will give different results.
+`--seed` Not selecting a seed will run with a random seed. Running this multiple times will give different results.
 ```
 python run.py \
         --pdb_path "./inputs/1BC8.pdb" \
@@ -100,7 +123,7 @@ python run.py \
         --save_stats 1
 ```
 ### 6 --fixed_residues
-`--fixed_residues` Fixing specific amino acids. This examples fixes first 10 residues in chain C and adds global bias towards A (alanine). The output should have all alanines except the first 10 residues should be the same as in the input sequence since those are fixed.
+`--fixed_residues` Fixing specific amino acids. This example fixes the first 10 residues in chain C and adds global bias towards A (alanine). The output should have all alanines except the first 10 residues should be the same as in the input sequence since those are fixed.
 ```
 python run.py \
         --seed 111 \
@@ -111,7 +134,7 @@ python run.py \
 ```
 
 ### 7 --redesigned_residues
-`--redesigned_residues` Specifying which residues need to be designed. This example redesigns first 10 residues while fixing everything else.
+`--redesigned_residues` Specifying which residues need to be designed. This example redesigns the first 10 residues while fixing everything else.
 ```
 python run.py \
         --seed 111 \
@@ -132,7 +155,7 @@ python run.py \
         --number_of_batches 5
 ```
 ### 9 --bias_AA
-Global amino acid bias. In this example output sequences are biased towards W, P, C and away from A.
+Global amino acid bias. In this example, output sequences are biased towards W, P, C and away from A.
 ```
 python run.py \
         --seed 111 \
@@ -141,7 +164,7 @@ python run.py \
         --out_folder "./outputs/global_bias"
 ```
 ### 10 --bias_AA_per_residue
-Specify per residue amino acid bias, e.g. make residues C1, C3, C5, C7 to be prolines.
+Specify per residue amino acid bias, e.g. make residues C1, C3, C5, and C7 to be prolines.
 ```
 # {
 # "C1": {"G": -0.3, "C": -2.0, "P": 10.8},
@@ -156,7 +179,7 @@ python run.py \
         --out_folder "./outputs/per_residue_bias"
 ```
 ### 11 --omit_AA
-Global amino acid restrictions. This is equivalent to using `--bias_AA` and setting bias to be a large negative number. The output should be just made of E,K,A.
+Global amino acid restrictions. This is equivalent to using `--bias_AA` and setting bias to be a large negative number. The output should be just made of E, K, A.
 ```
 python run.py \
         --seed 111 \
@@ -182,7 +205,7 @@ python run.py \
 ```
 ### 13 --symmetry_residues
 ### 13 --symmetry_weights
-Designing sequences with symmetry, e.g. homooligomer/2-state proteins etc. In this example make C1=C2=C3, also C4=C5, and C6=C7.
+Designing sequences with symmetry, e.g. homooligomer/2-state proteins, etc. In this example make C1=C2=C3, also C4=C5, and C6=C7.
 ```
 #total_logits += symmetry_weights[t]*logits
 #probs = torch.nn.functional.softmax((total_logits+bias_t) / temperature, dim=-1)
@@ -231,7 +254,7 @@ python run.py \
 ```
 
 ### 17 --chains_to_design
-Specify which chains (e.g. "ABC") need to be redesigned, other chains will be kept fixed. Outputs in seqs/backbones will still have atoms/sequence for the whole input PDB.
+Specify which chains (e.g. "ABC") need to be redesigned, other chains will be kept fixed. Outputs in seqs/backbones will still have atoms/sequences for the whole input PDB.
 ```
 python run.py \
         --model_type "ligand_mpnn" \
@@ -269,10 +292,10 @@ python run.py \
         --model_type "ligand_mpnn" \
         --seed 111 \
         --pdb_path "./inputs/1BC8.pdb" \
-        --out_folder "./outputs/ligandmpnn_default"
+        --out_folder "./outputs/ligandmpnn_v_32_005_25"
 ```
 ### 21 --ligand_mpnn_use_atom_context
-Setting `--ligand_mpnn_use_atom_context 0` will mask all ligand atoms. This can be used to access how much ligand atoms affect AA probabilities. 
+Setting `--ligand_mpnn_use_atom_context 0` will mask all ligand atoms. This can be used to assess how much ligand atoms affect AA probabilities. 
 ```
 python run.py \
         --model_type "ligand_mpnn" \
@@ -295,7 +318,7 @@ python run.py \
 ```
 
 ### 23 --model_type "soluble_mpnn"
-Run SolubleMPNN (ProteinMPNN like model with only soluble proteins in the training dataset).
+Run SolubleMPNN (ProteinMPNN-like model with only soluble proteins in the training dataset).
 ```
 python run.py \
         --model_type "soluble_mpnn" \
@@ -328,7 +351,7 @@ python run.py \
 ```
 
 ### 26 --fasta_seq_separation
-Choose a symbol to put between different chains in fasta output format. It's recommended to PDB output format to deal with residues jumps and multiple chain parsing.
+Choose a symbol to put between different chains in fasta output format. It's recommended to PDB output format to deal with residue jumps and multiple chain parsing.
 ```
 python run.py \
         --pdb_path "./inputs/1BC8.pdb" \
@@ -378,7 +401,7 @@ python run.py \
 ```
 
 ### 30 --omit_AA_per_residue_multi
-Specify which residues need to be ommitted when using `--pdb_path_multi` flag.
+Specify which residues need to be omitted when using `--pdb_path_multi` flag.
 ```
 #{
 #"./inputs/1BC8.pdb": {"C1":"ACDEFGHILMNPQRSTVWY", "C2":"ACDEFGHILMNPQRSTVWY", "C3":"ACDEFGHILMNPQRSTVWY"},
@@ -426,6 +449,12 @@ python run.py \
         --redesigned_residues "B82 B82A B82B B82C" \
         --parse_these_chains_only "B"
 ```
+
+### Things to add
+- Support for ProteinMPNN CA-only model.
+- Examples for scoring sequences only.
+- Side-chain packing scripts.
+- TER 
 
 
 ### Citing this work
