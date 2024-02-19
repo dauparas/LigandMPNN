@@ -513,17 +513,17 @@ def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
 
 def parse_PDB(
     input_path: str,
-    atom_context_num=8,
     device: str = "cpu",
     chains: list = [],
     parse_all_atoms: bool = False,
+    parse_atoms_with_zero_occupancy: bool = False
 ):
     """
     input_path : path for the input PDB
-    atom_context_num: number of nearest ligand context atoms per residue
     device: device for the torch.Tensor
     chains: a list specifying which chains need to be parsed; e.g. ["A", "B"]
     parse_all_atoms: if False parse only N,CA,C,O otherwise all 37 atoms
+    parse_atoms_with_zero_occupancy: if True atoms with zero occupancy will be parsed
     """
     element_list = [
         "H",
@@ -776,7 +776,8 @@ def parse_PDB(
         ]
 
     atoms = parsePDB(input_path)
-    atoms = atoms.select("occupancy > 0")
+    if not parse_atoms_with_zero_occupancy:
+        atoms = atoms.select("occupancy > 0")
     if chains:
         str_out = ""
         for item in chains:

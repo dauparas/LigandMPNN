@@ -450,6 +450,17 @@ python run.py \
         --parse_these_chains_only "B"
 ```
 
+### 34 parse atoms with zero occupancy
+Parse atoms in the PDB files with zero occupancy too.
+```
+python run.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --pdb_path "./inputs/1BC8.pdb" \
+        --out_folder "./outputs/parse_atoms_with_zero_occupancy" \
+        --parse_atoms_with_zero_occupancy 1
+```
+
 ### Things to add
 - Support for ProteinMPNN CA-only model.
 - Examples for scoring sequences only.

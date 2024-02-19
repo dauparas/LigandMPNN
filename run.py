@@ -159,9 +159,9 @@ def main(args) -> None:
         protein_dict, backbone, other_atoms, icodes, _ = parse_PDB(
             pdb,
             device=device,
-            atom_context_num=atom_context_num,
             chains=args.parse_these_chains_only,
             parse_all_atoms=args.ligand_mpnn_use_side_chain_context,
+            parse_atoms_with_zero_occupancy=args.parse_atoms_with_zero_occupancy
         )
         # make chain_letter + residue_idx + insertion_code mapping to integers
         R_idx_list = list(protein_dict["R_idx"].cpu().numpy())  # residue indices
@@ -788,6 +788,13 @@ if __name__ == "__main__":
         type=int,
         default=0,
         help="Provide global label for global_label_membrane_mpnn model. 1 - transmembrane, 0 - soluble",
+    )
+
+    argparser.add_argument(
+        "--parse_atoms_with_zero_occupancy",
+        type=int,
+        default=0,
+        help="To parse atoms with zero occupancy in the PDB input files. 0 - do not parse, 1 - parse atoms with zero occupancy",
     )
 
     args = argparser.parse_args()
