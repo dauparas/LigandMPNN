@@ -468,72 +468,112 @@ class ProteinMPNN(torch.nn.Module):
             }
         return output_dict
 
-    def unconditional_probs(self, feature_dict):
-        # xyz_37 = feature_dict["xyz_37"] #[B,L,37,3] - xyz coordinates for all atoms if needed
-        # xyz_37_m = feature_dict["xyz_37_m"] #[B,L,37] - mask for all coords
-        # Y = feature_dict["Y"] #[B,L,num_context_atoms,3] - for ligandMPNN coords
-        # Y_t = feature_dict["Y_t"] #[B,L,num_context_atoms] - element type
-        # Y_m = feature_dict["Y_m"] #[B,L,num_context_atoms] - mask
-        X = feature_dict["X"]  # [B,L,4,3] - backbone xyz coordinates for N,CA,C,O
+    def single_aa_score(self, feature_dict, use_sequence: bool):
+        """
+        feature_dict - input features
+        use_sequence - False using backbone info only
+        """
         B_decoder = feature_dict["batch_size"]
-        # R_idx = feature_dict["R_idx"] #[B,L] - primary sequence residue index
-        mask = feature_dict[
+        S_true_enc = feature_dict[
+            "S"
+        ]
+        mask_enc = feature_dict[
             "mask"
-        ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
-        # chain_labels = feature_dict["chain_labels"] #[B,L] - integer labels for chain letters
-        device = X.device
+        ]
+        chain_mask_enc = feature_dict[
+            "chain_mask"
+        ]
+        randn = feature_dict[
+            "randn"
+        ]
+        B, L = S_true_enc.shape
+        device = S_true_enc.device
 
-        h_V, h_E, E_idx = self.encode(feature_dict)
-        order_mask_backward = torch.zeros(
-            [X.shape[0], X.shape[1], X.shape[1]], device=device
-        )
-        mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
-        mask_1D = mask.view([mask.size(0), mask.size(1), 1, 1])
-        mask_fw = mask_1D * (1.0 - mask_attend)
+        h_V_enc, h_E_enc, E_idx_enc = self.encode(feature_dict)
+        log_probs_out = torch.zeros([B_decoder, L, 21], device=device).float()
+        logits_out = torch.zeros([B_decoder, L, 21], device=device).float()
+        decoding_order_out = torch.zeros([B_decoder, L, L], device=device).float()
 
-        h_V = h_V.repeat(B_decoder, 1, 1)
-        h_E = h_E.repeat(B_decoder, 1, 1, 1)
-        E_idx = E_idx.repeat(B_decoder, 1, 1)
-        mask_fw = mask_fw.repeat(B_decoder, 1, 1, 1)
-        mask = mask.repeat(B_decoder, 1)
+        for idx in range(L):
+            h_V = torch.clone(h_V_enc)
+            E_idx = torch.clone(E_idx_enc)
+            mask = torch.clone(mask_enc)
+            S_true = torch.clone(S_true_enc)
+            if not use_sequence:
+                order_mask = torch.zeros(chain_mask_enc.shape[1], device=device).float()
+                order_mask[idx] = 1.
+            else:
+                order_mask = torch.ones(chain_mask_enc.shape[1], device=device).float()
+                order_mask[idx] = 0.
+            decoding_order = torch.argsort(
+                (order_mask + 0.0001) * (torch.abs(randn))
+            )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+            E_idx = E_idx.repeat(B_decoder, 1, 1)
+            permutation_matrix_reverse = torch.nn.functional.one_hot(
+                decoding_order, num_classes=L
+            ).float()
+            order_mask_backward = torch.einsum(
+                "ij, biq, bjp->bqp",
+                (1 - torch.triu(torch.ones(L, L, device=device))),
+                permutation_matrix_reverse,
+                permutation_matrix_reverse,
+            )
+            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            mask_1D = mask.view([B, L, 1, 1])
+            mask_bw = mask_1D * mask_attend
+            mask_fw = mask_1D * (1.0 - mask_attend)
+            S_true = S_true.repeat(B_decoder, 1)
+            h_V = h_V.repeat(B_decoder, 1, 1)
+            h_E = h_E_enc.repeat(B_decoder, 1, 1, 1)
+            mask = mask.repeat(B_decoder, 1)
 
-        h_EX_encoder = cat_neighbors_nodes(torch.zeros_like(h_V), h_E, E_idx)
-        h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
+            h_S = self.W_s(S_true)
+            h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
-        h_EXV_encoder_fw = mask_fw * h_EXV_encoder
-        for layer in self.decoder_layers:
-            h_V = layer(h_V, h_EXV_encoder_fw, mask)
+            # Build encoder embeddings
+            h_EX_encoder = cat_neighbors_nodes(torch.zeros_like(h_S), h_E, E_idx)
+            h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
-        logits = self.W_out(h_V)
-        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-        output_dict = {"log_probs": log_probs}
+            h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+            for layer in self.decoder_layers:
+                # Masked positions attend to encoder information, unmasked see.
+                h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
+                h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
+                h_V = layer(h_V, h_ESV, mask)
+
+            logits = self.W_out(h_V)
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+            
+            log_probs_out[:,idx,:] = log_probs[:,idx,:]
+            logits_out[:,idx,:] = logits[:,idx,:]
+            decoding_order_out[:,idx,:] = decoding_order
+
+        output_dict = {
+            "S": S_true,
+            "log_probs": log_probs_out,
+            "logits": logits_out,
+            "decoding_order": decoding_order_out,
+        }
         return output_dict
 
-    def score(self, feature_dict):
-        # check if score matches - sample log probs
 
-        # xyz_37 = feature_dict["xyz_37"] #[B,L,37,3] - xyz coordinates for all atoms if needed
-        # xyz_37_m = feature_dict["xyz_37_m"] #[B,L,37] - mask for all coords
-        # Y = feature_dict["Y"] #[B,L,num_context_atoms,3] - for ligandMPNN coords
-        # Y_t = feature_dict["Y_t"] #[B,L,num_context_atoms] - element type
-        # Y_m = feature_dict["Y_m"] #[B,L,num_context_atoms] - mask
-        # X = feature_dict["X"] #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
+    def score(self, feature_dict, use_sequence: bool):
         B_decoder = feature_dict["batch_size"]
         S_true = feature_dict[
             "S"
-        ]  # [B,L] - integer proitein sequence encoded using "restype_STRtoINT"
-        # R_idx = feature_dict["R_idx"] #[B,L] - primary sequence residue index
+        ]
         mask = feature_dict[
             "mask"
-        ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
+        ]
         chain_mask = feature_dict[
             "chain_mask"
-        ]  # [B,L] - mask for which residues need to be fixed; 0.0 - fixed; 1.0 - will be designed
-        # chain_labels = feature_dict["chain_labels"] #[B,L] - integer labels for chain letters
+        ]
         randn = feature_dict[
             "randn"
-        ]  # [B,L] - random numbers for decoding order; only the first entry is used since decoding within a batch needs to match for symmetry
-
+        ]
+        symmetry_list_of_lists = feature_dict[
+            "symmetry_residues"
+        ]
         B, L = S_true.shape
         device = S_true.device
 
@@ -543,27 +583,57 @@ class ProteinMPNN(torch.nn.Module):
         decoding_order = torch.argsort(
             (chain_mask + 0.0001) * (torch.abs(randn))
         )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+        if len(symmetry_list_of_lists[0]) == 0 and len(symmetry_list_of_lists) == 1:
+            E_idx = E_idx.repeat(B_decoder, 1, 1)
+            permutation_matrix_reverse = torch.nn.functional.one_hot(
+                decoding_order, num_classes=L
+            ).float()
+            order_mask_backward = torch.einsum(
+                "ij, biq, bjp->bqp",
+                (1 - torch.triu(torch.ones(L, L, device=device))),
+                permutation_matrix_reverse,
+                permutation_matrix_reverse,
+            )
+            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            mask_1D = mask.view([B, L, 1, 1])
+            mask_bw = mask_1D * mask_attend
+            mask_fw = mask_1D * (1.0 - mask_attend)
+        else:
+            new_decoding_order = []
+            for t_dec in list(decoding_order[0,].cpu().data.numpy()):
+                if t_dec not in list(itertools.chain(*new_decoding_order)):
+                    list_a = [item for item in symmetry_list_of_lists if t_dec in item]
+                    if list_a:
+                        new_decoding_order.append(list_a[0])
+                    else:
+                        new_decoding_order.append([t_dec])
 
-        permutation_matrix_reverse = torch.nn.functional.one_hot(
-            decoding_order, num_classes=L
-        ).float()
-        order_mask_backward = torch.einsum(
-            "ij, biq, bjp->bqp",
-            (1 - torch.triu(torch.ones(L, L, device=device))),
-            permutation_matrix_reverse,
-            permutation_matrix_reverse,
-        )
-        mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
-        mask_1D = mask.view([B, L, 1, 1])
-        mask_bw = mask_1D * mask_attend
-        mask_fw = mask_1D * (1.0 - mask_attend)
+            decoding_order = torch.tensor(
+                list(itertools.chain(*new_decoding_order)), device=device
+            )[None,].repeat(B, 1)
 
-        # repeat for decoding
+            permutation_matrix_reverse = torch.nn.functional.one_hot(
+                decoding_order, num_classes=L
+            ).float()
+            order_mask_backward = torch.einsum(
+                "ij, biq, bjp->bqp",
+                (1 - torch.triu(torch.ones(L, L, device=device))),
+                permutation_matrix_reverse,
+                permutation_matrix_reverse,
+            )
+            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            mask_1D = mask.view([B, L, 1, 1])
+            mask_bw = mask_1D * mask_attend
+            mask_fw = mask_1D * (1.0 - mask_attend)
+
+            E_idx = E_idx.repeat(B_decoder, 1, 1)
+            mask_fw = mask_fw.repeat(B_decoder, 1, 1, 1)
+            mask_bw = mask_bw.repeat(B_decoder, 1, 1, 1)
+            decoding_order = decoding_order.repeat(B_decoder, 1)
+
         S_true = S_true.repeat(B_decoder, 1)
         h_V = h_V.repeat(B_decoder, 1, 1)
         h_E = h_E.repeat(B_decoder, 1, 1, 1)
-        E_idx = E_idx.repeat(B_decoder, 1, 1)
-        chain_mask = chain_mask.repeat(B_decoder, 1)
         mask = mask.repeat(B_decoder, 1)
 
         h_S = self.W_s(S_true)
@@ -574,11 +644,15 @@ class ProteinMPNN(torch.nn.Module):
         h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
         h_EXV_encoder_fw = mask_fw * h_EXV_encoder
-        for layer in self.decoder_layers:
-            # Masked positions attend to encoder information, unmasked see.
-            h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
-            h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
-            h_V = layer(h_V, h_ESV, mask)
+        if not use_sequence:
+            for layer in self.decoder_layers:
+                h_V = layer(h_V, h_EXV_encoder_fw, mask)          
+        else:
+            for layer in self.decoder_layers:
+                # Masked positions attend to encoder information, unmasked see.
+                h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
+                h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
+                h_V = layer(h_V, h_ESV, mask)
 
         logits = self.W_out(h_V)
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
@@ -586,7 +660,8 @@ class ProteinMPNN(torch.nn.Module):
         output_dict = {
             "S": S_true,
             "log_probs": log_probs,
-            "decoding_order": decoding_order[0],
+            "logits": logits,
+            "decoding_order": decoding_order,
         }
         return output_dict
 

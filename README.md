@@ -78,7 +78,7 @@ To run the model of your choice specify `--model_type` and optionally the model 
 --checkpoint_per_residue_label_membrane_mpnn "./model_params/per_residue_label_membrane_mpnn_v_48_020.pt" #noised with 0.20A Gaussian noise
 ```
 
-## Examples
+## Design examples
 ### 1 default
 Default settings will run ProteinMPNN.
 ```
@@ -459,6 +459,77 @@ python run.py \
         --pdb_path "./inputs/1BC8.pdb" \
         --out_folder "./outputs/parse_atoms_with_zero_occupancy" \
         --parse_atoms_with_zero_occupancy 1
+```
+
+## Scoring examples
+### Output dictionary
+```
+out_dict = {}
+out_dict["logits"] - raw logits from the model
+out_dict["probs"] - softmax(logits)
+out_dict["log_probs"] - log_softmax(logits)
+out_dict["decoding_order"] - decoding order used (logits will depend on the decoding order)
+out_dict["native_sequence"] - parsed input sequence in integers
+out_dict["mask"] - mask for missing residues (usually all ones)
+out_dict["chain_mask"] - controls which residues are decoded first
+out_dict["alphabet"] - amino acid alphabet used
+out_dict["residue_names"] - dictionary to map integers to residue_names, e.g. {0: "C10", 1: "C11"}
+out_dict["sequence"] - parsed input sequence in alphabet
+out_dict["mean_of_probs"] - averaged over batch_size*number_of_batches probabilities, [protein_length, 21]
+out_dict["std_of_probs"] - same as above, but std
+```
+
+### 1 autoregressive with sequence info
+Get probabilities/scores for backbone-sequence pairs using autoregressive probabilities: p(AA_1|backbone), p(AA_2|backbone, AA_1) etc. These probabilities will depend on the decoding order, so it's recomended to set number_of_batches to at least 10.
+```
+python score.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --autoregressive_score 1\
+        --pdb_path "./outputs/ligandmpnn_default/backbones/1BC8_1.pdb" \
+        --out_folder "./outputs/autoregressive_score_w_seq" \
+        --use_sequence 1\
+        --batch_size 1 \
+        --number_of_batches 10
+```
+### 2 autoregressive with backbone info only
+Get probabilities/scores for backbone using probabilities: p(AA_1|backbone), p(AA_2|backbone) etc. These probabilities will depend on the decoding order, so it's recomended to set number_of_batches to at least 10.
+```
+python score.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --autoregressive_score 1\
+        --pdb_path "./outputs/ligandmpnn_default/backbones/1BC8_1.pdb" \
+        --out_folder "./outputs/autoregressive_score_wo_seq" \
+        --use_sequence 0\
+        --batch_size 1 \
+        --number_of_batches 10
+```
+### 3 single amino acid score with sequence info
+Get probabilities/scores for backbone-sequence pairs using single aa probabilities: p(AA_1|backbone, AA_{all except AA_1}), p(AA_2|backbone, AA_{all except AA_2}) etc. These probabilities will depend on the decoding order, so it's recomended to set number_of_batches to at least 10.
+```
+python score.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --single_aa_score 1\
+        --pdb_path "./outputs/ligandmpnn_default/backbones/1BC8_1.pdb" \
+        --out_folder "./outputs/single_aa_score_w_seq" \
+        --use_sequence 1\
+        --batch_size 1 \
+        --number_of_batches 10
+```
+### 4 single amino acid score with backbone info only
+Get probabilities/scores for backbone-sequence pairs using single aa probabilities: p(AA_1|backbone), p(AA_2|backbone) etc. These probabilities will depend on the decoding order, so it's recomended to set number_of_batches to at least 10.
+```
+python score.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --single_aa_score 1\
+        --pdb_path "./outputs/ligandmpnn_default/backbones/1BC8_1.pdb" \
+        --out_folder "./outputs/single_aa_score_wo_seq" \
+        --use_sequence 0\
+        --batch_size 1 \
+        --number_of_batches 10
 ```
 
 ### Things to add
