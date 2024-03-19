@@ -150,6 +150,22 @@ def main(args) -> None:
         device=device,
     )
 
+    # specify which residues are linked
+    pdb_remapped_symmetry_residues = {}
+    if args.symmetry_residues_multi:
+        with open(args.symmetry_residues_multi, "r") as fh:
+            pdb_remapped_symmetry_residues = json.load(fh)
+    elif args.symmetry_residues:
+        symmetry_residues_list_of_lists = [
+            x.split(",") for x in args.symmetry_residues.split("|")
+        ]
+        for pdb in pdb_paths:
+            pdb_remapped_symmetry_residues[pdb] = symmetry_residues_list_of_lists
+
+    else:
+        for pdb in pdb_paths:
+            pdb_remapped_symmetry_residues[pdb] = [[]]
+
     # loop over PDB paths
     for pdb in pdb_paths:
         if args.verbose:
@@ -273,19 +289,10 @@ def main(args) -> None:
             print("These residues will be redesigned: ", PDB_residues_to_be_redesigned)
             print("These residues will be fixed: ", PDB_residues_to_be_fixed)
 
-        # specify which residues are linked
-        if args.symmetry_residues:
-            symmetry_residues_list_of_lists = [
-                x.split(",") for x in args.symmetry_residues.split("|")
-            ]
-            remapped_symmetry_residues = []
-            for t_list in symmetry_residues_list_of_lists:
-                tmp_list = []
-                for t in t_list:
-                    tmp_list.append(encoded_residue_dict[t])
-                remapped_symmetry_residues.append(tmp_list)
-        else:
-            remapped_symmetry_residues = [[]]
+        remapped_symmetry_residues = [
+            [encoded_residue_dict[sym_res] for sym_res in sym_list]
+            for sym_list in pdb_remapped_symmetry_residues[pdb]
+        ]
 
         # specify linking weights
         if args.symmetry_weights:
@@ -294,7 +301,11 @@ def main(args) -> None:
                 for x in args.symmetry_weights.split("|")
             ]
         else:
-            symmetry_weights = [[]]
+            symmetry_weights = [
+                [factor] * len(residues)
+                for residues in remapped_symmetry_residues
+                for factor in [1 if len(residues) == 0 else  1 / len(residues)]
+            ]
 
         if args.homo_oligomer:
             if args.verbose:
@@ -684,6 +695,12 @@ if __name__ == "__main__":
         help="Add list of lists for which residues need to be symmetric, e.g. 'A12,A13,A14|C2,C3|A5,B6'",
     )
     argparser.add_argument(
+        "--symmetry_residues_multi",
+        type=str,
+        default="",
+        help="Path to json list of lists of symmetric residues for each structure, eg. {'/path/to/pdb': [['A12','B12'], ['A15','B15']]}"
+    )
+    argparser.add_argument(
         "--symmetry_weights",
         type=str,
         default="",
@@ -761,6 +778,13 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Specify which chains to redesign, all others will be kept fixed.",
+    )
+
+    argparser.add_argument(
+        "--chains_to_design_multi",
+        type=str,
+        default=None,
+        help="Specify json file indicating which chains to design as: '{'/path/to/pdb': [A,B]}'"
     )
 
     argparser.add_argument(
