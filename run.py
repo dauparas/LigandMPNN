@@ -35,18 +35,22 @@ def main(args) -> None:
     np.random.seed(seed)
     device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
     folder_for_outputs = args.out_folder
-    base_folder = folder_for_outputs
-    if base_folder[-1] != "/":
-        base_folder = base_folder + "/"
+
+    # Add trailing slash if missing
+    base_folder = os.path.join(folder_for_outputs, '')
+    seqs_folder = os.path.join(base_folder, "seqs")
+    backbones_folder = os.path.join(base_folder, "backbones")
+    stats_folder = os.path.join(base_folder, "stats")
+
     if not os.path.exists(base_folder):
         os.makedirs(base_folder, exist_ok=True)
-    if not os.path.exists(base_folder + "seqs"):
-        os.makedirs(base_folder + "seqs", exist_ok=True)
-    if not os.path.exists(base_folder + "backbones"):
-        os.makedirs(base_folder + "backbones", exist_ok=True)
+    if not os.path.exists(seqs_folder):
+        os.makedirs(seqs_folder, exist_ok=True)
+    if not os.path.exists(backbones_folder):
+        os.makedirs(backbones_folder, exist_ok=True)
     if args.save_stats:
-        if not os.path.exists(base_folder + "stats"):
-            os.makedirs(base_folder + "stats", exist_ok=True)
+        if not os.path.exists(stats_folder):
+            os.makedirs(stats_folder, exist_ok=True)
     if args.model_type == "protein_mpnn":
         checkpoint_path = args.checkpoint_protein_mpnn
     elif args.model_type == "ligand_mpnn":
@@ -149,6 +153,22 @@ def main(args) -> None:
         np.array([AA in omit_AA_list for AA in alphabet]).astype(np.float32),
         device=device,
     )
+
+    # specify which residues are linked
+    pdb_remapped_symmetry_residues = {}
+    if args.symmetry_residues_multi:
+        with open(args.symmetry_residues_multi, "r") as fh:
+            pdb_remapped_symmetry_residues = json.load(fh)
+    elif args.symmetry_residues:
+        symmetry_residues_list_of_lists = [
+            x.split(",") for x in args.symmetry_residues.split("|")
+        ]
+        for pdb in pdb_paths:
+            pdb_remapped_symmetry_residues[pdb] = symmetry_residues_list_of_lists
+
+    else:
+        for pdb in pdb_paths:
+            pdb_remapped_symmetry_residues[pdb] = [[]]
 
     # loop over PDB paths
     for pdb in pdb_paths:
@@ -273,19 +293,10 @@ def main(args) -> None:
             print("These residues will be redesigned: ", PDB_residues_to_be_redesigned)
             print("These residues will be fixed: ", PDB_residues_to_be_fixed)
 
-        # specify which residues are linked
-        if args.symmetry_residues:
-            symmetry_residues_list_of_lists = [
-                x.split(",") for x in args.symmetry_residues.split("|")
-            ]
-            remapped_symmetry_residues = []
-            for t_list in symmetry_residues_list_of_lists:
-                tmp_list = []
-                for t in t_list:
-                    tmp_list.append(encoded_residue_dict[t])
-                remapped_symmetry_residues.append(tmp_list)
-        else:
-            remapped_symmetry_residues = [[]]
+        remapped_symmetry_residues = [
+            [encoded_residue_dict[sym_res] for sym_res in sym_list]
+            for sym_list in pdb_remapped_symmetry_residues[pdb]
+        ]
 
         # specify linking weights
         if args.symmetry_weights:
@@ -294,7 +305,11 @@ def main(args) -> None:
                 for x in args.symmetry_weights.split("|")
             ]
         else:
-            symmetry_weights = [[]]
+            symmetry_weights = [
+                [factor] * len(residues)
+                for residues in remapped_symmetry_residues
+                for factor in [1 if len(residues) == 0 else  1 / len(residues)]
+            ]
 
         if args.homo_oligomer:
             if args.verbose:
@@ -323,7 +338,7 @@ def main(args) -> None:
             other_atoms.setBetas(other_bfactors * 0.0)
 
         # adjust input PDB name by dropping .pdb if it does exist
-        name = pdb[pdb.rfind("/") + 1 :]
+        name = os.path.basename(pdb)
         if name[-4:] == ".pdb":
             name = name[:-4]
 
@@ -428,9 +443,9 @@ def main(args) -> None:
                 seq_out_str += [args.fasta_seq_separation]
             seq_out_str = "".join(seq_out_str)[:-1]
 
-            output_fasta = base_folder + "/seqs/" + name + args.file_ending + ".fa"
-            output_backbones = base_folder + "/backbones/"
-            output_stats_path = base_folder + "stats/" + name + args.file_ending + ".pt"
+            output_fasta = os.path.join(seqs_folder, name + args.file_ending + ".fa")
+            output_backbones = backbones_folder
+            output_stats_path = os.path.join(stats_folder, name + args.file_ending + ".pt")
 
             out_dict = {}
             out_dict["generated_sequences"] = S_stack.cpu()
@@ -494,22 +509,26 @@ def main(args) -> None:
                     )
                     if other_atoms:
                         writePDB(
-                            output_backbones
-                            + name
-                            + "_"
-                            + str(ix_suffix)
-                            + args.file_ending
-                            + ".pdb",
+                            os.path.join(
+                                output_backbones,
+                                name
+                                + "_"
+                                + str(ix_suffix)
+                                + args.file_ending
+                                + ".pdb"
+                            ),
                             backbone + other_atoms,
                         )
                     else:
                         writePDB(
-                            output_backbones
-                            + name
-                            + "_"
-                            + str(ix_suffix)
-                            + args.file_ending
-                            + ".pdb",
+                            os.path.join(
+                                output_backbones,
+                                name
+                                + "_"
+                                + str(ix_suffix)
+                                + args.file_ending
+                                + ".pdb"
+                            ),
                             backbone,
                         )
                     # write fasta lines
@@ -559,6 +578,9 @@ if __name__ == "__main__":
         default="protein_mpnn",
         help="Choose your model: protein_mpnn, ligand_mpnn, per_residue_label_membrane_mpnn, global_label_membrane_mpnn, soluble_mpnn",
     )
+
+    default_model_path = os.path.join(os.path.dirname(__file__), "model_params")
+
     # protein_mpnn - original ProteinMPNN trained on the whole PDB exluding non-protein atoms
     # ligand_mpnn - atomic context aware model trained with small molecules, nucleotides, metals etc on the whole PDB
     # per_residue_label_membrane_mpnn - ProteinMPNN model trained with addition label per residue specifying if that residue is buried or exposed
@@ -567,31 +589,31 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--checkpoint_protein_mpnn",
         type=str,
-        default="./model_params/proteinmpnn_v_48_020.pt",
+        default=os.path.join(default_model_path, "proteinmpnn_v_48_020.pt"),
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_ligand_mpnn",
         type=str,
-        default="./model_params/ligandmpnn_v_32_010_25.pt",
+        default=os.path.join(default_model_path, "ligandmpnn_v_32_010_25.pt"),
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_per_residue_label_membrane_mpnn",
         type=str,
-        default="./model_params/per_residue_label_membrane_mpnn_v_48_020.pt",
+        default=os.path.join(default_model_path, "per_residue_label_membrane_mpnn_v_48_020.pt"),
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_global_label_membrane_mpnn",
         type=str,
-        default="./model_params/global_label_membrane_mpnn_v_48_020.pt",
+        default=os.path.join(default_model_path, "global_label_membrane_mpnn_v_48_020.pt"),
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_soluble_mpnn",
         type=str,
-        default="./model_params/solublempnn_v_48_020.pt",
+        default=os.path.join(default_model_path, "solublempnn_v_48_020.pt"),
         help="Path to model weights.",
     )
 
@@ -684,6 +706,12 @@ if __name__ == "__main__":
         help="Add list of lists for which residues need to be symmetric, e.g. 'A12,A13,A14|C2,C3|A5,B6'",
     )
     argparser.add_argument(
+        "--symmetry_residues_multi",
+        type=str,
+        default="",
+        help="Path to json list of lists of symmetric residues for each structure, eg. {'/path/to/pdb': [['A12','B12'], ['A15','B15']]}"
+    )
+    argparser.add_argument(
         "--symmetry_weights",
         type=str,
         default="",
@@ -761,6 +789,13 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Specify which chains to redesign, all others will be kept fixed.",
+    )
+
+    argparser.add_argument(
+        "--chains_to_design_multi",
+        type=str,
+        default=None,
+        help="Specify json file indicating which chains to design as: '{'/path/to/pdb': [A,B]}'"
     )
 
     argparser.add_argument(
