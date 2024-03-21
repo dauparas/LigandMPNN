@@ -10,8 +10,7 @@ bash get_model_params.sh "./model_params"
 
 #setup your conda/or other environment
 #conda create -n ligandmpnn_env python=3.11
-#pip3 install torch
-#pip install prody
+#pip3 install -r requirements.txt
 
 python run.py \
         --seed 111 \
@@ -25,8 +24,7 @@ To run the model you will need to have Python>=3.0, PyTorch, Numpy installed, an
 For example to make a new conda environment for LigandMPNN run:
 ```
 conda create -n ligandmpnn_env python=3.11
-pip3 install torch
-pip install prody
+pip3 install -r requirements.txt
 ```
 
 ### Main differences compared with [ProteinMPNN](https://github.com/dauparas/ProteinMPNN) code
