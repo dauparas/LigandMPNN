@@ -6,15 +6,20 @@ import sys
 
 import numpy as np
 import torch
+from prody import writePDB
 
-from data_utils import (
-    element_dict_rev,
+from ligandmpnn.data_utils import (
     alphabet,
-    restype_int_to_str,
+    element_dict_rev,
     featurize,
+    get_score,
+    get_seq_rec,
     parse_PDB,
+    restype_1to3,
+    restype_int_to_str,
+    restype_str_to_int,
 )
-from model_utils import ProteinMPNN
+from ligandmpnn.model_utils import ProteinMPNN
 
 
 def main(args) -> None:
@@ -35,6 +40,13 @@ def main(args) -> None:
         base_folder = base_folder + "/"
     if not os.path.exists(base_folder):
         os.makedirs(base_folder, exist_ok=True)
+    if not os.path.exists(base_folder + "seqs"):
+        os.makedirs(base_folder + "seqs", exist_ok=True)
+    if not os.path.exists(base_folder + "backbones"):
+        os.makedirs(base_folder + "backbones", exist_ok=True)
+    if args.save_stats:
+        if not os.path.exists(base_folder + "stats"):
+            os.makedirs(base_folder + "stats", exist_ok=True)
     if args.model_type == "protein_mpnn":
         checkpoint_path = args.checkpoint_protein_mpnn
     elif args.model_type == "ligand_mpnn":
@@ -99,6 +111,45 @@ def main(args) -> None:
         for pdb in pdb_paths:
             redesigned_residues_multi[pdb] = redesigned_residues
 
+    bias_AA = torch.zeros([21], device=device, dtype=torch.float32)
+    if args.bias_AA:
+        tmp = [item.split(":") for item in args.bias_AA.split(",")]
+        a1 = [b[0] for b in tmp]
+        a2 = [float(b[1]) for b in tmp]
+        for i, AA in enumerate(a1):
+            bias_AA[restype_str_to_int[AA]] = a2[i]
+
+    if args.bias_AA_per_residue_multi:
+        with open(args.bias_AA_per_residue_multi, "r") as fh:
+            bias_AA_per_residue_multi = json.load(
+                fh
+            )  # {"pdb_path" : {"A12": {"G": 1.1}}}
+    else:
+        if args.bias_AA_per_residue:
+            with open(args.bias_AA_per_residue, "r") as fh:
+                bias_AA_per_residue = json.load(fh)  # {"A12": {"G": 1.1}}
+            bias_AA_per_residue_multi = {}
+            for pdb in pdb_paths:
+                bias_AA_per_residue_multi[pdb] = bias_AA_per_residue
+
+    if args.omit_AA_per_residue_multi:
+        with open(args.omit_AA_per_residue_multi, "r") as fh:
+            omit_AA_per_residue_multi = json.load(
+                fh
+            )  # {"pdb_path" : {"A12": "PQR", "A13": "QS"}}
+    else:
+        if args.omit_AA_per_residue:
+            with open(args.omit_AA_per_residue, "r") as fh:
+                omit_AA_per_residue = json.load(fh)  # {"A12": "PG"}
+            omit_AA_per_residue_multi = {}
+            for pdb in pdb_paths:
+                omit_AA_per_residue_multi[pdb] = omit_AA_per_residue
+    omit_AA_list = args.omit_AA
+    omit_AA = torch.tensor(
+        np.array([AA in omit_AA_list for AA in alphabet]).astype(np.float32),
+        device=device,
+    )
+
     # loop over PDB paths
     for pdb in pdb_paths:
         if args.verbose:
@@ -123,6 +174,32 @@ def main(args) -> None:
         encoded_residue_dict_rev = dict(
             zip(list(range(len(encoded_residues))), encoded_residues)
         )
+
+        bias_AA_per_residue = torch.zeros(
+            [len(encoded_residues), 21], device=device, dtype=torch.float32
+        )
+        if args.bias_AA_per_residue_multi or args.bias_AA_per_residue:
+            bias_dict = bias_AA_per_residue_multi[pdb]
+            for residue_name, v1 in bias_dict.items():
+                if residue_name in encoded_residues:
+                    i1 = encoded_residue_dict[residue_name]
+                    for amino_acid, v2 in v1.items():
+                        if amino_acid in alphabet:
+                            j1 = restype_str_to_int[amino_acid]
+                            bias_AA_per_residue[i1, j1] = v2
+
+        omit_AA_per_residue = torch.zeros(
+            [len(encoded_residues), 21], device=device, dtype=torch.float32
+        )
+        if args.omit_AA_per_residue_multi or args.omit_AA_per_residue:
+            omit_dict = omit_AA_per_residue_multi[pdb]
+            for residue_name, v1 in omit_dict.items():
+                if residue_name in encoded_residues:
+                    i1 = encoded_residue_dict[residue_name]
+                    for amino_acid in v1:
+                        if amino_acid in alphabet:
+                            j1 = restype_str_to_int[amino_acid]
+                            omit_AA_per_residue[i1, j1] = 1.0
 
         fixed_positions = torch.tensor(
             [int(item not in fixed_residues) for item in encoded_residues],
@@ -210,6 +287,15 @@ def main(args) -> None:
         else:
             remapped_symmetry_residues = [[]]
 
+        # specify linking weights
+        if args.symmetry_weights:
+            symmetry_weights = [
+                [float(item) for item in x.split(",")]
+                for x in args.symmetry_weights.split("|")
+            ]
+        else:
+            symmetry_weights = [[]]
+
         if args.homo_oligomer:
             if args.verbose:
                 print("Designing HOMO-OLIGOMER")
@@ -220,6 +306,7 @@ def main(args) -> None:
                 item[lc:] for item in encoded_residues if item[:lc] == reference_chain
             ]
             remapped_symmetry_residues = []
+            symmetry_weights = []
             for res in residue_indices:
                 tmp_list = []
                 tmp_w_list = []
@@ -228,6 +315,7 @@ def main(args) -> None:
                     tmp_list.append(encoded_residue_dict[name])
                     tmp_w_list.append(1 / len(chain_letters_set))
                 remapped_symmetry_residues.append(tmp_list)
+                symmetry_weights.append(tmp_w_list)
 
         # set other atom bfactors to 0.0
         if other_atoms:
@@ -272,62 +360,192 @@ def main(args) -> None:
             feature_dict["batch_size"] = args.batch_size
             B, L, _, _ = feature_dict["X"].shape  # batch size should be 1 for now.
             # add additional keys to the feature dictionary
+            feature_dict["temperature"] = args.temperature
+            feature_dict["bias"] = (
+                (-1e8 * omit_AA[None, None, :] + bias_AA).repeat([1, L, 1])
+                + bias_AA_per_residue[None]
+                - 1e8 * omit_AA_per_residue[None]
+            )
             feature_dict["symmetry_residues"] = remapped_symmetry_residues
+            feature_dict["symmetry_weights"] = symmetry_weights
 
-            logits_list = []
-            probs_list = []
+            sampling_probs_list = []
             log_probs_list = []
             decoding_order_list = []
+            S_list = []
+            loss_list = []
+            loss_per_residue_list = []
+            loss_XY_list = []
             for _ in range(args.number_of_batches):
                 feature_dict["randn"] = torch.randn(
                     [feature_dict["batch_size"], feature_dict["mask"].shape[1]],
                     device=device,
                 )
-                if args.autoregressive_score:
-                    score_dict = model.score(feature_dict, use_sequence=args.use_sequence)
-                elif args.single_aa_score:
-                    score_dict = model.single_aa_score(feature_dict, use_sequence=args.use_sequence)
+                output_dict = model.sample(feature_dict)
+
+                # compute confidence scores
+                loss, loss_per_residue = get_score(
+                    output_dict["S"],
+                    output_dict["log_probs"],
+                    feature_dict["mask"] * feature_dict["chain_mask"],
+                )
+                if args.model_type == "ligand_mpnn":
+                    combined_mask = (
+                        feature_dict["mask"]
+                        * feature_dict["mask_XY"]
+                        * feature_dict["chain_mask"]
+                    )
                 else:
-                    print("Set either autoregressive_score or single_aa_score to True")
-                    sys.exit()
-                logits_list.append(score_dict["logits"])
-                log_probs_list.append(score_dict["log_probs"])
-                probs_list.append(torch.exp(score_dict["log_probs"]))
-                decoding_order_list.append(score_dict["decoding_order"])
+                    combined_mask = feature_dict["mask"] * feature_dict["chain_mask"]
+                loss_XY, _ = get_score(
+                    output_dict["S"], output_dict["log_probs"], combined_mask
+                )
+                # -----
+                S_list.append(output_dict["S"])
+                log_probs_list.append(output_dict["log_probs"])
+                sampling_probs_list.append(output_dict["sampling_probs"])
+                decoding_order_list.append(output_dict["decoding_order"])
+                loss_list.append(loss)
+                loss_per_residue_list.append(loss_per_residue)
+                loss_XY_list.append(loss_XY)
+            S_stack = torch.cat(S_list, 0)
             log_probs_stack = torch.cat(log_probs_list, 0)
-            logits_stack = torch.cat(logits_list, 0)
-            probs_stack = torch.cat(probs_list, 0)
+            sampling_probs_stack = torch.cat(sampling_probs_list, 0)
             decoding_order_stack = torch.cat(decoding_order_list, 0)
+            loss_stack = torch.cat(loss_list, 0)
+            loss_per_residue_stack = torch.cat(loss_per_residue_list, 0)
+            loss_XY_stack = torch.cat(loss_XY_list, 0)
+            rec_mask = feature_dict["mask"][:1] * feature_dict["chain_mask"][:1]
+            rec_stack = get_seq_rec(feature_dict["S"][:1], S_stack, rec_mask)
 
-            output_stats_path = base_folder + name + args.file_ending + ".pt"
+            native_seq = "".join(
+                [restype_int_to_str[AA] for AA in feature_dict["S"][0].cpu().numpy()]
+            )
+            seq_np = np.array(list(native_seq))
+            seq_out_str = []
+            for mask in protein_dict["mask_c"]:
+                seq_out_str += list(seq_np[mask.cpu().numpy()])
+                seq_out_str += [args.fasta_seq_separation]
+            seq_out_str = "".join(seq_out_str)[:-1]
+
+            output_fasta = base_folder + "/seqs/" + name + args.file_ending + ".fa"
+            output_backbones = base_folder + "/backbones/"
+            output_stats_path = base_folder + "stats/" + name + args.file_ending + ".pt"
+
             out_dict = {}
-            out_dict["logits"] = logits_stack.cpu().numpy()
-            out_dict["probs"] = probs_stack.cpu().numpy()
-            out_dict["log_probs"] = log_probs_stack.cpu().numpy()
-            out_dict["decoding_order"] = decoding_order_stack.cpu().numpy()
-            out_dict["native_sequence"] = feature_dict["S"][0].cpu().numpy()
-            out_dict["mask"] = feature_dict["mask"][0].cpu().numpy()
-            out_dict["chain_mask"] = feature_dict["chain_mask"][0].cpu().numpy() #this affects decoding order
+            out_dict["generated_sequences"] = S_stack.cpu()
+            out_dict["sampling_probs"] = sampling_probs_stack.cpu()
+            out_dict["log_probs"] = log_probs_stack.cpu()
+            out_dict["decoding_order"] = decoding_order_stack.cpu()
+            out_dict["native_sequence"] = feature_dict["S"][0].cpu()
+            out_dict["mask"] = feature_dict["mask"][0].cpu()
+            out_dict["chain_mask"] = feature_dict["chain_mask"][0].cpu()
             out_dict["seed"] = seed
-            out_dict["alphabet"] = alphabet
-            out_dict["residue_names"] = encoded_residue_dict_rev
+            out_dict["temperature"] = args.temperature
+            if args.save_stats:
+                torch.save(out_dict, output_stats_path)
 
-            mean_probs = np.mean(out_dict["probs"], 0)
-            std_probs = np.std(out_dict["probs"], 0)
-            sequence = [restype_int_to_str[AA] for AA in out_dict["native_sequence"]]
-            mean_dict = {}
-            std_dict = {}
-            for residue in range(L):
-                mean_dict_ = dict(zip(alphabet, mean_probs[residue]))
-                mean_dict[encoded_residue_dict_rev[residue]] = mean_dict_
-                std_dict_ = dict(zip(alphabet, std_probs[residue]))
-                std_dict[encoded_residue_dict_rev[residue]] = std_dict_
+            with open(output_fasta, "w") as f:
+                f.write(
+                    ">{}, T={}, seed={}, num_res={}, num_ligand_res={}, use_ligand_context={}, ligand_cutoff_distance={}, batch_size={}, number_of_batches={}, model_path={}\n{}\n".format(
+                        name,
+                        args.temperature,
+                        seed,
+                        torch.sum(rec_mask).cpu().numpy(),
+                        torch.sum(combined_mask[:1]).cpu().numpy(),
+                        bool(args.ligand_mpnn_use_atom_context),
+                        float(args.ligand_mpnn_cutoff_for_score),
+                        args.batch_size,
+                        args.number_of_batches,
+                        checkpoint_path,
+                        seq_out_str,
+                    )
+                )
+                for ix in range(S_stack.shape[0]):
+                    ix_suffix = ix
+                    if not args.zero_indexed:
+                        ix_suffix += 1
+                    seq_rec_print = np.format_float_positional(
+                        rec_stack[ix].cpu().numpy(), unique=False, precision=4
+                    )
+                    loss_np = np.format_float_positional(
+                        np.exp(-loss_stack[ix].cpu().numpy()), unique=False, precision=4
+                    )
+                    loss_XY_np = np.format_float_positional(
+                        np.exp(-loss_XY_stack[ix].cpu().numpy()),
+                        unique=False,
+                        precision=4,
+                    )
+                    seq = "".join(
+                        [restype_int_to_str[AA] for AA in S_stack[ix].cpu().numpy()]
+                    )
 
-            out_dict["sequence"] = sequence
-            out_dict["mean_of_probs"] = mean_dict
-            out_dict["std_of_probs"] = std_dict
-            torch.save(out_dict, output_stats_path)
-
+                    # write new sequences into PDB with backbone coordinates
+                    seq_prody = np.array([restype_1to3[AA] for AA in list(seq)])[
+                        None,
+                    ].repeat(4, 1)
+                    bfactor_prody = (
+                        loss_per_residue_stack[ix].cpu().numpy()[None, :].repeat(4, 1)
+                    )
+                    backbone.setResnames(seq_prody)
+                    backbone.setBetas(
+                        np.exp(-bfactor_prody)
+                        * (bfactor_prody > 0.01).astype(np.float32)
+                    )
+                    if other_atoms:
+                        writePDB(
+                            output_backbones
+                            + name
+                            + "_"
+                            + str(ix_suffix)
+                            + args.file_ending
+                            + ".pdb",
+                            backbone + other_atoms,
+                        )
+                    else:
+                        writePDB(
+                            output_backbones
+                            + name
+                            + "_"
+                            + str(ix_suffix)
+                            + args.file_ending
+                            + ".pdb",
+                            backbone,
+                        )
+                    # write fasta lines
+                    seq_np = np.array(list(seq))
+                    seq_out_str = []
+                    for mask in protein_dict["mask_c"]:
+                        seq_out_str += list(seq_np[mask.cpu().numpy()])
+                        seq_out_str += [args.fasta_seq_separation]
+                    seq_out_str = "".join(seq_out_str)[:-1]
+                    if ix == S_stack.shape[0] - 1:
+                        # final 2 lines
+                        f.write(
+                            ">{}, id={}, T={}, seed={}, overall_confidence={}, ligand_confidence={}, seq_rec={}\n{}".format(
+                                name,
+                                ix_suffix,
+                                args.temperature,
+                                seed,
+                                loss_np,
+                                loss_XY_np,
+                                seq_rec_print,
+                                seq_out_str,
+                            )
+                        )
+                    else:
+                        f.write(
+                            ">{}, id={}, T={}, seed={}, overall_confidence={}, ligand_confidence={}, seq_rec={}\n{}\n".format(
+                                name,
+                                ix_suffix,
+                                args.temperature,
+                                seed,
+                                loss_np,
+                                loss_XY_np,
+                                seq_rec_print,
+                                seq_out_str,
+                            )
+                        )
 
 
 if __name__ == "__main__":
@@ -377,6 +595,12 @@ if __name__ == "__main__":
         help="Path to model weights.",
     )
 
+    argparser.add_argument(
+        "--fasta_seq_separation",
+        type=str,
+        default=":",
+        help="Symbol to use between sequences from different chains",
+    )
     argparser.add_argument("--verbose", type=int, default=1, help="Print stuff")
 
     argparser.add_argument(
@@ -416,12 +640,55 @@ if __name__ == "__main__":
     )
 
     argparser.add_argument(
+        "--bias_AA",
+        type=str,
+        default="",
+        help="Bias generation of amino acids, e.g. 'A:-1.024,P:2.34,C:-12.34'",
+    )
+    argparser.add_argument(
+        "--bias_AA_per_residue",
+        type=str,
+        default="",
+        help="Path to json mapping of bias {'A12': {'G': -0.3, 'C': -2.0, 'H': 0.8}, 'A13': {'G': -1.3}}",
+    )
+    argparser.add_argument(
+        "--bias_AA_per_residue_multi",
+        type=str,
+        default="",
+        help="Path to json mapping of bias {'pdb_path': {'A12': {'G': -0.3, 'C': -2.0, 'H': 0.8}, 'A13': {'G': -1.3}}}",
+    )
+
+    argparser.add_argument(
+        "--omit_AA",
+        type=str,
+        default="",
+        help="Bias generation of amino acids, e.g. 'ACG'",
+    )
+    argparser.add_argument(
+        "--omit_AA_per_residue",
+        type=str,
+        default="",
+        help="Path to json mapping of bias {'A12': 'APQ', 'A13': 'QST'}",
+    )
+    argparser.add_argument(
+        "--omit_AA_per_residue_multi",
+        type=str,
+        default="",
+        help="Path to json mapping of bias {'pdb_path': {'A12': 'QSPC', 'A13': 'AGE'}}",
+    )
+
+    argparser.add_argument(
         "--symmetry_residues",
         type=str,
         default="",
         help="Add list of lists for which residues need to be symmetric, e.g. 'A12,A13,A14|C2,C3|A5,B6'",
     )
-    
+    argparser.add_argument(
+        "--symmetry_weights",
+        type=str,
+        default="",
+        help="Add weights that match symmetry_residues, e.g. '1.01,1.0,1.0|-1.0,2.0|2.0,2.3'",
+    )
     argparser.add_argument(
         "--homo_oligomer",
         type=int,
@@ -432,7 +699,7 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--out_folder",
         type=str,
-        help="Path to a folder to output scores, e.g. /home/out/",
+        help="Path to a folder to output sequences, e.g. /home/out/",
     )
     argparser.add_argument(
         "--file_ending", type=str, default="", help="adding_string_to_the_end"
@@ -461,6 +728,15 @@ if __name__ == "__main__":
         default=1,
         help="Number of times to design sequence using a chosen batch size.",
     )
+    argparser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.1,
+        help="Temperature to sample sequences.",
+    )
+    argparser.add_argument(
+        "--save_stats", type=int, default=0, help="Save output statistics"
+    )
 
     argparser.add_argument(
         "--ligand_mpnn_use_atom_context",
@@ -468,21 +744,18 @@ if __name__ == "__main__":
         default=1,
         help="1 - use atom context, 0 - do not use atom context.",
     )
-
-    argparser.add_argument(
-        "--ligand_mpnn_use_side_chain_context",
-        type=int,
-        default=0,
-        help="Flag to use side chain atoms as ligand context for the fixed residues",
-    )
-
     argparser.add_argument(
         "--ligand_mpnn_cutoff_for_score",
         type=float,
         default=8.0,
         help="Cutoff in angstroms between protein and context atoms to select residues for reporting score.",
     )
-
+    argparser.add_argument(
+        "--ligand_mpnn_use_side_chain_context",
+        type=int,
+        default=0,
+        help="Flag to use side chain atoms as ligand context for the fixed residues",
+    )
     argparser.add_argument(
         "--chains_to_design",
         type=str,
@@ -522,27 +795,6 @@ if __name__ == "__main__":
         type=int,
         default=0,
         help="To parse atoms with zero occupancy in the PDB input files. 0 - do not parse, 1 - parse atoms with zero occupancy",
-    )
-
-    argparser.add_argument(
-        "--use_sequence",
-        type=int,
-        default=1,
-        help="1 - get scores using amino acid sequence info; 0 - get scores using backbone info only",
-    )
-
-    argparser.add_argument(
-        "--autoregressive_score",
-        type=int,
-        default=0,
-        help="1 - run autoregressive scoring function; p(AA_1|backbone); p(AA_2|backbone, AA_1) etc, 0 - False",
-    )
-
-    argparser.add_argument(
-        "--single_aa_score",
-        type=int,
-        default=1,
-        help="1 - run single amino acid scoring function; p(AA_i|backbone, AA_{all except ith one}), 0 - False",
     )
 
     args = argparser.parse_args()
