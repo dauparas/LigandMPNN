@@ -21,56 +21,12 @@ from ligandmpnn.data_utils import (
     restype_str_to_int,
 )
 from ligandmpnn.model_utils import ProteinMPNN
-
-from dataclasses import dataclass
-from immutabledict import immutabledict
-
-
-@dataclass
-class MPNN_sequence:
-    id: str
-    seq: str
-
-
-@dataclass(frozen=True)
-class MPNN_weights:
-    model2md5: immutabledict = immutabledict(
-        {
-            "global_label_membrane_mpnn_v_48_020": "f95d52fe593e387ac852ce42a64ace7e",
-            "ligandmpnn_v_32_005_25": "61cec2c47e680619e246694881d39af7",
-            "ligandmpnn_v_32_010_25": "5cb0c0454d01132a463b576dc8ca43e5",
-            "ligandmpnn_v_32_020_25": "c2488988cddcda60ce57d491d265084b",
-            "ligandmpnn_v_32_030_25": "a93eedb3f9de277ab65f8013979dfcdf",
-            "per_residue_label_membrane_mpnn_v_48_020": "cf4b842f446f399349064e1f6768073b",
-            "proteinmpnn_v_48_002": "03e9ff81f6691580854123b9cb74efdf",
-            "proteinmpnn_v_48_010": "4255760493a761d2b6cb0671a48e49b7",
-            "proteinmpnn_v_48_020": "91d54c97a68bf551114f8c74c785e90f",
-            "proteinmpnn_v_48_030": "b158144dd607a9662859f8fdc4add09f",
-            "solublempnn_v_48_002": "9926175521f6539530ce6fa88fd7cc66",
-            "solublempnn_v_48_010": "f5ad1edd1ffe094fc33d8c9b268d00c4",
-            "solublempnn_v_48_020": "698982b1bda2b0d42e26538e64c93fda",
-            "solublempnn_v_48_030": "e89591deba35ac4563d7da6e498d01e4",
-        }
-    )
-    base_url = "https://files.ipd.uw.edu/pub/ligandmpnn/"
-
-    def fetch_all_weights(self, download_dir):
-        for m in self.model2md5.keys():
-            self.fetch_one_weights(download_dir=download_dir, model=m)
-
-    def fetch_one_weights(self, download_dir, model):
-        if not (md5 := self.model2md5.get(model)):
-            raise ValueError(f"invalid {model=}")
-
-        import pooch
-
-        pooch.retrieve(
-            url=f"{self.base_url}/{model}.pt",
-            known_hash=f"md5:{md5}",
-            fname=f"{model}.pt",
-            path=download_dir,
-            progressbar=True,
-        )
+from ligandmpnn.dataclass_utils import (
+    MPNN_sequence,
+    MPNN_WT_sequence,
+    MPNN_Mutant_sequence,
+    MPNN_weights,
+)
 
 
 # rewriten from run.py
@@ -698,7 +654,8 @@ class MPNN_designer:
 
                 self.sequences: list[MPNN_sequence] = []
 
-                seq_id = "{}, T={}, seed={}, num_res={}, num_ligand_res={}, use_ligand_context={}, ligand_cutoff_distance={}, batch_size={}, number_of_batches={}, model_path={}".format(
+                wt_seq: MPNN_WT_sequence = MPNN_WT_sequence(
+                    seq_out_str,
                     name,
                     self.cfg.sampling.temperature,
                     self.seed,
@@ -711,7 +668,7 @@ class MPNN_designer:
                     self.checkpoint_path,
                 )
 
-                self.sequences.append(MPNN_sequence(seq=seq_out_str, id=seq_id))
+                self.sequences.append(wt_seq)
 
                 for ix in range(S_stack.shape[0]):
                     ix_suffix = ix
@@ -760,7 +717,8 @@ class MPNN_designer:
                         seq_out_str += [self.cfg.output.fasta_seq_separation]
                     seq_out_str = "".join(seq_out_str)[:-1]
 
-                    seq_id = "{}, id={}, T={}, seed={}, overall_confidence={}, ligand_confidence={}, seq_rec={}".format(
+                    variant: MPNN_Mutant_sequence = MPNN_Mutant_sequence(
+                        seq_out_str,
                         name,
                         ix_suffix,
                         self.cfg.sampling.temperature,
@@ -770,7 +728,7 @@ class MPNN_designer:
                         seq_rec_print,
                     )
 
-                    self.sequences.append(MPNN_sequence(seq=seq_out_str, id=seq_id))
+                    self.sequences.append(variant)
 
                 with open(output_fasta, "w") as handle:
                     for r in self.sequences:

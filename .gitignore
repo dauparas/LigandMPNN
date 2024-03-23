@@ -4,3 +4,4 @@
 /outputs/default
 /model_params
 /test
+*.pyc

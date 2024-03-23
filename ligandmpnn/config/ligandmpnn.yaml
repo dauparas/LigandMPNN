@@ -5,7 +5,7 @@ runtime:
     all: 
       - 'design'
       - 'score'
-  force_cpu: False
+  force_cpu: True
 
 weight_dir: model_params/
 
