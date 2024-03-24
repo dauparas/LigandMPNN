@@ -558,321 +558,318 @@ class MPNN_designer:
     def design_proteins(self):
         # loop over PDB paths
         for pdb in self.pdb_paths:
-            if self.cfg.runtime.verbose:
-                print("Designing protein from this path:", pdb)
+            print(f'Processing {pdb=}')
+            self.design_proteins_single(pdb=pdb)
+
+    def design_proteins_single(self, pdb):
+        if self.cfg.runtime.verbose:
+            print("Designing protein from this path:", pdb)
+
+        (
+            fixed_residues,
+            redesigned_residues,
+            other_atoms,
+            backbone,
+            icodes,
+        ) = self.parse_protein(pdb)
+
+        (
+            encoded_residues,
+            encoded_residue_dict,
+            encoded_residue_dict_rev,
+            chain_letters_list,
+        ) = self.get_encoded_residues(icodes)
+
+        bias_AA_per_residue = self.get_biased(
+            pdb, encoded_residues, encoded_residue_dict
+        )
+        omit_AA_per_residue = self.get_omitted(
+            pdb, encoded_residues, encoded_residue_dict
+        )
+
+        fixed_positions = self.get_fixed(encoded_residues, fixed_residues)
+
+        redesigned_positions = self.get_redesigned(
+            encoded_residues, redesigned_residues
+        )
+
+        self.process_transmembrane(
+            encoded_residues,
+            fixed_positions,
+        )
+
+        chain_mask = self.get_chain_mask()
+
+        self.set_chain_mask(
+            chain_mask,
+            redesigned_residues,
+            redesigned_positions,
+            fixed_residues,
+            fixed_positions,
+            encoded_residue_dict_rev,
+        )
+
+        remapped_symmetry_residues, symmetry_weights = self.linking_weights(
+            encoded_residues, encoded_residue_dict, chain_letters_list
+        )
+
+        # set other atom bfactors to 0.0
+        if other_atoms:
+            other_bfactors = other_atoms.getBetas()
+            other_atoms.setBetas(other_bfactors * 0.0)
+
+        # adjust input PDB name by dropping .pdb if it does exist
+        name = os.path.basename(pdb)
+        if name.endswith(".pdb"):
+            name = name[:-4]
+
+        with torch.no_grad():
+            self.feature_dict = self.get_feature_dict()
+
+            B, L, _, _ = self.feature_dict["X"].shape  # batch size should be 1 for now.
+            # add additional keys to the feature dictionary
+            self.feature_dict["temperature"] = self.cfg.sampling.temperature
+            self.feature_dict["bias"] = (
+                (-1e8 * self.omit_AA[None, None, :] + self.bias_AA).repeat([1, L, 1])
+                + bias_AA_per_residue[None]
+                - 1e8 * omit_AA_per_residue[None]
+            )
+            self.feature_dict["symmetry_residues"] = remapped_symmetry_residues
+            self.feature_dict["symmetry_weights"] = symmetry_weights
+
+            output_fasta = os.path.join(
+                self.seqs_folder, f"{name}{self.cfg.output.file_ending}.fa"
+            )
 
             (
-                fixed_residues,
-                redesigned_residues,
-                other_atoms,
-                backbone,
-                icodes,
-            ) = self.parse_protein(pdb)
+                rec_mask,
+                rec_stack,
+                combined_mask,
+                S_stack,
+                loss_stack,
+                loss_XY_stack,
+                loss_per_residue_stack,
+                native_seq,
+            ) = self.run_sampling(name)
 
-            (
-                encoded_residues,
-                encoded_residue_dict,
-                encoded_residue_dict_rev,
-                chain_letters_list,
-            ) = self.get_encoded_residues(icodes)
+            seq_np = np.array(list(native_seq))
 
-            bias_AA_per_residue = self.get_biased(
-                pdb, encoded_residues, encoded_residue_dict
-            )
-            omit_AA_per_residue = self.get_omitted(
-                pdb, encoded_residues, encoded_residue_dict
-            )
+            seq_out_str = []
+            for mask in self.protein_dict["mask_c"]:
+                seq_out_str += list(seq_np[mask.cpu().numpy()])
+                seq_out_str += [self.cfg.output.fasta_seq_separation]
+            seq_out_str = "".join(seq_out_str)[:-1]
 
-            fixed_positions = self.get_fixed(encoded_residues, fixed_residues)
+            self.sequences: list[MPNN_sequence] = []
 
-            redesigned_positions = self.get_redesigned(
-                encoded_residues, redesigned_residues
-            )
-
-            self.process_transmembrane(
-                encoded_residues,
-                fixed_positions,
-            )
-
-            chain_mask = self.get_chain_mask()
-
-            self.set_chain_mask(
-                chain_mask,
-                redesigned_residues,
-                redesigned_positions,
-                fixed_residues,
-                fixed_positions,
-                encoded_residue_dict_rev,
+            wt_seq: MPNN_WT_sequence = MPNN_WT_sequence(
+                seq_out_str,
+                name,
+                self.cfg.sampling.temperature,
+                self.seed,
+                torch.sum(rec_mask).cpu().numpy(),
+                torch.sum(combined_mask[:1]).cpu().numpy(),
+                bool(self.cfg.sampling.ligand_mpnn.use_atom_context),
+                float(self.cfg.sampling.ligand_mpnn.cutoff_for_score),
+                self.cfg.sampling.batch_size,
+                self.cfg.sampling.number_of_batches,
+                self.checkpoint_path,
             )
 
-            remapped_symmetry_residues, symmetry_weights = self.linking_weights(
-                encoded_residues, encoded_residue_dict, chain_letters_list
-            )
+            self.sequences.append(wt_seq)
 
-            # set other atom bfactors to 0.0
-            if other_atoms:
-                other_bfactors = other_atoms.getBetas()
-                other_atoms.setBetas(other_bfactors * 0.0)
-
-            # adjust input PDB name by dropping .pdb if it does exist
-            name = os.path.basename(pdb)
-            if name.endswith(".pdb"):
-                name = name[:-4]
-
-            with torch.no_grad():
-                self.feature_dict = self.get_feature_dict()
-
-                B, L, _, _ = self.feature_dict[
-                    "X"
-                ].shape  # batch size should be 1 for now.
-                # add additional keys to the feature dictionary
-                self.feature_dict["temperature"] = self.cfg.sampling.temperature
-                self.feature_dict["bias"] = (
-                    (-1e8 * self.omit_AA[None, None, :] + self.bias_AA).repeat(
-                        [1, L, 1]
-                    )
-                    + bias_AA_per_residue[None]
-                    - 1e8 * omit_AA_per_residue[None]
+            for ix in range(S_stack.shape[0]):
+                ix_suffix = ix
+                if not self.cfg.output.zero_indexed:
+                    ix_suffix += 1
+                seq_rec_print = np.format_float_positional(
+                    rec_stack[ix].cpu().numpy(), unique=False, precision=4
                 )
-                self.feature_dict["symmetry_residues"] = remapped_symmetry_residues
-                self.feature_dict["symmetry_weights"] = symmetry_weights
-
-                output_fasta = os.path.join(
-                    self.seqs_folder, f"{name}{self.cfg.output.file_ending}.fa"
+                loss_np = np.format_float_positional(
+                    np.exp(-loss_stack[ix].cpu().numpy()), unique=False, precision=4
+                )
+                loss_XY_np = np.format_float_positional(
+                    np.exp(-loss_XY_stack[ix].cpu().numpy()),
+                    unique=False,
+                    precision=4,
+                )
+                seq = "".join(
+                    [restype_int_to_str[AA] for AA in S_stack[ix].cpu().numpy()]
                 )
 
-                (
-                    rec_mask,
-                    rec_stack,
-                    combined_mask,
-                    S_stack,
-                    loss_stack,
-                    loss_XY_stack,
-                    loss_per_residue_stack,
-                    native_seq,
-                ) = self.run_sampling(name)
+                # write new sequences into PDB with backbone coordinates
+                seq_prody = np.array([restype_1to3[AA] for AA in list(seq)])[
+                    None,
+                ].repeat(4, 1)
+                bfactor_prody = (
+                    loss_per_residue_stack[ix].cpu().numpy()[None, :].repeat(4, 1)
+                )
+                backbone.setResnames(seq_prody)
+                backbone.setBetas(
+                    np.exp(-bfactor_prody) * (bfactor_prody > 0.01).astype(np.float32)
+                )
 
-                seq_np = np.array(list(native_seq))
-
+                writePDB(
+                    filename=os.path.join(
+                        self.bb_folder,
+                        f"{name}_{str(ix_suffix)}{self.cfg.output.file_ending}.pdb",
+                    ),
+                    atoms=backbone + other_atoms if other_atoms else backbone,
+                )
+                # write fasta lines
+                seq_np = np.array(list(seq))
                 seq_out_str = []
                 for mask in self.protein_dict["mask_c"]:
                     seq_out_str += list(seq_np[mask.cpu().numpy()])
                     seq_out_str += [self.cfg.output.fasta_seq_separation]
                 seq_out_str = "".join(seq_out_str)[:-1]
 
-                self.sequences: list[MPNN_sequence] = []
-
-                wt_seq: MPNN_WT_sequence = MPNN_WT_sequence(
+                variant: MPNN_Mutant_sequence = MPNN_Mutant_sequence(
                     seq_out_str,
                     name,
+                    ix_suffix,
                     self.cfg.sampling.temperature,
                     self.seed,
-                    torch.sum(rec_mask).cpu().numpy(),
-                    torch.sum(combined_mask[:1]).cpu().numpy(),
-                    bool(self.cfg.sampling.ligand_mpnn.use_atom_context),
-                    float(self.cfg.sampling.ligand_mpnn.cutoff_for_score),
-                    self.cfg.sampling.batch_size,
-                    self.cfg.sampling.number_of_batches,
-                    self.checkpoint_path,
+                    loss_np,
+                    loss_XY_np,
+                    seq_rec_print,
                 )
 
-                self.sequences.append(wt_seq)
+                self.sequences.append(variant)
 
-                for ix in range(S_stack.shape[0]):
-                    ix_suffix = ix
-                    if not self.cfg.output.zero_indexed:
-                        ix_suffix += 1
-                    seq_rec_print = np.format_float_positional(
-                        rec_stack[ix].cpu().numpy(), unique=False, precision=4
-                    )
-                    loss_np = np.format_float_positional(
-                        np.exp(-loss_stack[ix].cpu().numpy()), unique=False, precision=4
-                    )
-                    loss_XY_np = np.format_float_positional(
-                        np.exp(-loss_XY_stack[ix].cpu().numpy()),
-                        unique=False,
-                        precision=4,
-                    )
-                    seq = "".join(
-                        [restype_int_to_str[AA] for AA in S_stack[ix].cpu().numpy()]
-                    )
+            with open(output_fasta, "w") as handle:
+                for r in self.sequences:
+                    handle.write(f">{r.id}\n{r.seq}\n")
+                handle.write("\n")
 
-                    # write new sequences into PDB with backbone coordinates
-                    seq_prody = np.array([restype_1to3[AA] for AA in list(seq)])[
-                        None,
-                    ].repeat(4, 1)
-                    bfactor_prody = (
-                        loss_per_residue_stack[ix].cpu().numpy()[None, :].repeat(4, 1)
-                    )
-                    backbone.setResnames(seq_prody)
-                    backbone.setBetas(
-                        np.exp(-bfactor_prody)
-                        * (bfactor_prody > 0.01).astype(np.float32)
-                    )
-
-                    writePDB(
-                        filename=os.path.join(
-                            self.bb_folder,
-                            f"{name}_{str(ix_suffix)}{self.cfg.output.file_ending}.pdb",
-                        ),
-                        atoms=backbone + other_atoms if other_atoms else backbone,
-                    )
-                    # write fasta lines
-                    seq_np = np.array(list(seq))
-                    seq_out_str = []
-                    for mask in self.protein_dict["mask_c"]:
-                        seq_out_str += list(seq_np[mask.cpu().numpy()])
-                        seq_out_str += [self.cfg.output.fasta_seq_separation]
-                    seq_out_str = "".join(seq_out_str)[:-1]
-
-                    variant: MPNN_Mutant_sequence = MPNN_Mutant_sequence(
-                        seq_out_str,
-                        name,
-                        ix_suffix,
-                        self.cfg.sampling.temperature,
-                        self.seed,
-                        loss_np,
-                        loss_XY_np,
-                        seq_rec_print,
-                    )
-
-                    self.sequences.append(variant)
-
-                with open(output_fasta, "w") as handle:
-                    for r in self.sequences:
-                        handle.write(f">{r.id}\n{r.seq}\n")
-                    handle.write("\n")
-
-    # from score.py
     def score_proteins(self):
         # loop over PDB paths
         for pdb in self.pdb_paths:
-            if self.cfg.runtime.verbose:
-                print("Designing protein from this path:", pdb)
+            print(f'Processing {pdb=}')
+            self.score_proteins_single(pdb=pdb)
 
-            (
-                fixed_residues,
-                redesigned_residues,
-                other_atoms,
-                backbone,
-                icodes,
-            ) = self.parse_protein(pdb)
+    # from score.py
+    def score_proteins_single(self, pdb):
+        if self.cfg.runtime.verbose:
+            print("Designing protein from this path:", pdb)
 
-            (
-                encoded_residues,
-                encoded_residue_dict,
-                encoded_residue_dict_rev,
-                chain_letters_list,
-            ) = self.get_encoded_residues(icodes)
+        (
+            fixed_residues,
+            redesigned_residues,
+            other_atoms,
+            backbone,
+            icodes,
+        ) = self.parse_protein(pdb)
 
-            fixed_positions = self.get_fixed(encoded_residues, fixed_residues)
+        (
+            encoded_residues,
+            encoded_residue_dict,
+            encoded_residue_dict_rev,
+            chain_letters_list,
+        ) = self.get_encoded_residues(icodes)
 
-            redesigned_positions = self.get_redesigned(
-                encoded_residues, redesigned_residues
-            )
+        fixed_positions = self.get_fixed(encoded_residues, fixed_residues)
 
-            self.process_transmembrane(encoded_residues, fixed_positions)
+        redesigned_positions = self.get_redesigned(
+            encoded_residues, redesigned_residues
+        )
 
-            chain_mask = self.get_chain_mask()
+        self.process_transmembrane(encoded_residues, fixed_positions)
 
-            self.set_chain_mask(
-                chain_mask,
-                redesigned_residues,
-                redesigned_positions,
-                fixed_residues,
-                fixed_positions,
-                encoded_residue_dict_rev,
-            )
+        chain_mask = self.get_chain_mask()
 
-            remapped_symmetry_residues, symmetry_weights = self.linking_weights(
-                encoded_residues, encoded_residue_dict, chain_letters_list
-            )
+        self.set_chain_mask(
+            chain_mask,
+            redesigned_residues,
+            redesigned_positions,
+            fixed_residues,
+            fixed_positions,
+            encoded_residue_dict_rev,
+        )
 
-            # set other atom bfactors to 0.0
-            if other_atoms:
-                other_bfactors = other_atoms.getBetas()
-                other_atoms.setBetas(other_bfactors * 0.0)
+        remapped_symmetry_residues, symmetry_weights = self.linking_weights(
+            encoded_residues, encoded_residue_dict, chain_letters_list
+        )
 
-            # adjust input PDB name by dropping .pdb if it does exist
-            name = os.path.basename(pdb)
-            if name.endswith(".pdb"):
-                name = name[:-4]
+        # set other atom bfactors to 0.0
+        if other_atoms:
+            other_bfactors = other_atoms.getBetas()
+            other_atoms.setBetas(other_bfactors * 0.0)
 
-            with torch.no_grad():
-                # run featurize to remap R_idx and add batch dimension
-                self.feature_dict = self.get_feature_dict()
+        # adjust input PDB name by dropping .pdb if it does exist
+        name = os.path.basename(pdb)
+        if name.endswith(".pdb"):
+            name = name[:-4]
 
-                B, L, _, _ = self.feature_dict[
-                    "X"
-                ].shape  # batch size should be 1 for now.
-                # add additional keys to the feature dictionary
-                self.feature_dict["symmetry_residues"] = remapped_symmetry_residues
+        with torch.no_grad():
+            # run featurize to remap R_idx and add batch dimension
+            self.feature_dict = self.get_feature_dict()
 
-                logits_list = []
-                probs_list = []
-                log_probs_list = []
-                decoding_order_list = []
-                for _ in range(self.cfg.sampling.number_of_batches):
-                    self.feature_dict["randn"] = torch.randn(
-                        [
-                            self.feature_dict["batch_size"],
-                            self.feature_dict["mask"].shape[1],
-                        ],
-                        device=self.device,
-                    )
-                    if self.cfg.scorer.autoregressive_score:
-                        score_dict = self.model.score(
-                            self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
-                        )
-                    elif self.cfg.scorer.single_aa_score:
-                        score_dict = self.model.single_aa_score(
-                            self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
-                        )
-                    else:
-                        print(
-                            "Set either autoregressive_score or single_aa_score to True"
-                        )
-                        sys.exit()
-                    logits_list.append(score_dict["logits"])
-                    log_probs_list.append(score_dict["log_probs"])
-                    probs_list.append(torch.exp(score_dict["log_probs"]))
-                    decoding_order_list.append(score_dict["decoding_order"])
-                log_probs_stack = torch.cat(log_probs_list, 0)
-                logits_stack = torch.cat(logits_list, 0)
-                probs_stack = torch.cat(probs_list, 0)
-                decoding_order_stack = torch.cat(decoding_order_list, 0)
+            B, L, _, _ = self.feature_dict["X"].shape  # batch size should be 1 for now.
+            # add additional keys to the feature dictionary
+            self.feature_dict["symmetry_residues"] = remapped_symmetry_residues
 
-                output_stats_path = os.path.join(
-                    self.stats_folder, f"{name}{self.cfg.output.file_ending}.pt"
+            logits_list = []
+            probs_list = []
+            log_probs_list = []
+            decoding_order_list = []
+            for _ in range(self.cfg.sampling.number_of_batches):
+                self.feature_dict["randn"] = torch.randn(
+                    [
+                        self.feature_dict["batch_size"],
+                        self.feature_dict["mask"].shape[1],
+                    ],
+                    device=self.device,
                 )
-                out_dict = {}
-                out_dict["logits"] = logits_stack.cpu().numpy()
-                out_dict["probs"] = probs_stack.cpu().numpy()
-                out_dict["log_probs"] = log_probs_stack.cpu().numpy()
-                out_dict["decoding_order"] = decoding_order_stack.cpu().numpy()
-                out_dict["native_sequence"] = self.feature_dict["S"][0].cpu().numpy()
-                out_dict["mask"] = self.feature_dict["mask"][0].cpu().numpy()
-                out_dict["chain_mask"] = (
-                    self.feature_dict["chain_mask"][0].cpu().numpy()
-                )  # this affects decoding order
-                out_dict["seed"] = self.seed
-                out_dict["alphabet"] = alphabet
-                out_dict["residue_names"] = encoded_residue_dict_rev
+                if self.cfg.scorer.autoregressive_score:
+                    score_dict = self.model.score(
+                        self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
+                    )
+                elif self.cfg.scorer.single_aa_score:
+                    score_dict = self.model.single_aa_score(
+                        self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
+                    )
+                else:
+                    print("Set either autoregressive_score or single_aa_score to True")
+                    sys.exit()
+                logits_list.append(score_dict["logits"])
+                log_probs_list.append(score_dict["log_probs"])
+                probs_list.append(torch.exp(score_dict["log_probs"]))
+                decoding_order_list.append(score_dict["decoding_order"])
+            log_probs_stack = torch.cat(log_probs_list, 0)
+            logits_stack = torch.cat(logits_list, 0)
+            probs_stack = torch.cat(probs_list, 0)
+            decoding_order_stack = torch.cat(decoding_order_list, 0)
 
-                mean_probs = np.mean(out_dict["probs"], 0)
-                std_probs = np.std(out_dict["probs"], 0)
-                sequence = [
-                    restype_int_to_str[AA] for AA in out_dict["native_sequence"]
-                ]
-                mean_dict = {}
-                std_dict = {}
-                for residue in range(L):
-                    mean_dict_ = dict(zip(alphabet, mean_probs[residue]))
-                    mean_dict[encoded_residue_dict_rev[residue]] = mean_dict_
-                    std_dict_ = dict(zip(alphabet, std_probs[residue]))
-                    std_dict[encoded_residue_dict_rev[residue]] = std_dict_
+            output_stats_path = os.path.join(
+                self.stats_folder, f"{name}{self.cfg.output.file_ending}.pt"
+            )
+            out_dict = {}
+            out_dict["logits"] = logits_stack.cpu().numpy()
+            out_dict["probs"] = probs_stack.cpu().numpy()
+            out_dict["log_probs"] = log_probs_stack.cpu().numpy()
+            out_dict["decoding_order"] = decoding_order_stack.cpu().numpy()
+            out_dict["native_sequence"] = self.feature_dict["S"][0].cpu().numpy()
+            out_dict["mask"] = self.feature_dict["mask"][0].cpu().numpy()
+            out_dict["chain_mask"] = (
+                self.feature_dict["chain_mask"][0].cpu().numpy()
+            )  # this affects decoding order
+            out_dict["seed"] = self.seed
+            out_dict["alphabet"] = alphabet
+            out_dict["residue_names"] = encoded_residue_dict_rev
 
-                out_dict["sequence"] = sequence
-                out_dict["mean_of_probs"] = mean_dict
-                out_dict["std_of_probs"] = std_dict
-                torch.save(out_dict, output_stats_path)
+            mean_probs = np.mean(out_dict["probs"], 0)
+            std_probs = np.std(out_dict["probs"], 0)
+            sequence = [restype_int_to_str[AA] for AA in out_dict["native_sequence"]]
+            mean_dict = {}
+            std_dict = {}
+            for residue in range(L):
+                mean_dict_ = dict(zip(alphabet, mean_probs[residue]))
+                mean_dict[encoded_residue_dict_rev[residue]] = mean_dict_
+                std_dict_ = dict(zip(alphabet, std_probs[residue]))
+                std_dict[encoded_residue_dict_rev[residue]] = std_dict_
+
+            out_dict["sequence"] = sequence
+            out_dict["mean_of_probs"] = mean_dict
+            out_dict["std_of_probs"] = std_dict
+            torch.save(out_dict, output_stats_path)
