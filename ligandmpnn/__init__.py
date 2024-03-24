@@ -42,6 +42,13 @@ class MPNN_designer:
         self.setup_folders()
         self.set_model_parameters()
         self.load_model()
+
+        self.protein_dict: dict = None
+        self.feature_dict: dict = None
+
+        if not (self.cfg.input.pdb_path_multi or self.cfg.input.pdb):
+            return
+
         self.load_pdb_paths()
         self.load_fixed_residues()
         self.load_redesigned_residues()
@@ -247,13 +254,13 @@ class MPNN_designer:
 
         return omit_AA_per_residue
 
-    def get_feature_dict(self, protein_dict):
+    def get_feature_dict(self):
         # run featurize to remap R_idx and add batch dimension
         if self.cfg.runtime.verbose:
-            if "Y" in list(protein_dict):
-                atom_coords = protein_dict["Y"].cpu().numpy()
-                atom_types = list(protein_dict["Y_t"].cpu().numpy())
-                atom_mask = list(protein_dict["Y_m"].cpu().numpy())
+            if "Y" in list(self.protein_dict):
+                atom_coords = self.protein_dict["Y"].cpu().numpy()
+                atom_types = list(self.protein_dict["Y_t"].cpu().numpy())
+                atom_mask = list(self.protein_dict["Y_m"].cpu().numpy())
                 number_of_atoms_parsed = np.sum(atom_mask)
             else:
                 print("No ligand atoms parsed")
@@ -271,7 +278,7 @@ class MPNN_designer:
                         f"Type: {element_dict_rev[atom_type]}, Coords {atom_coords[i]}, Mask {atom_mask[i]}"
                     )
         feature_dict = featurize(
-            protein_dict,
+            self.protein_dict,
             cutoff_for_score=self.cfg.sampling.ligand_mpnn.cutoff_for_score,
             use_atom_context=self.cfg.sampling.ligand_mpnn.use_atom_context,
             number_of_ligand_atoms=self.atom_context_num,
@@ -330,7 +337,7 @@ class MPNN_designer:
 
         return remapped_symmetry_residues, symmetry_weights
 
-    def process_transmembrane(self, encoded_residues, fixed_positions, protein_dict):
+    def process_transmembrane(self, encoded_residues, fixed_positions):
         # specify which residues are buried for checkpoint_per_residue_label_membrane_mpnn model
         if buried := self.cfg.input.transmembrane.buried:
             buried_residues = [item for item in buried.split()]
@@ -349,28 +356,28 @@ class MPNN_designer:
             )
         else:
             interface_positions = torch.zeros_like(fixed_positions)
-        protein_dict["membrane_per_residue_labels"] = 2 * buried_positions * (
+        self.protein_dict["membrane_per_residue_labels"] = 2 * buried_positions * (
             1 - interface_positions
         ) + 1 * interface_positions * (1 - buried_positions)
 
         if self.cfg.model_type.use == "global_label_membrane_mpnn":
-            protein_dict["membrane_per_residue_labels"] = (
+            self.protein_dict["membrane_per_residue_labels"] = (
                 self.cfg.input.transmembrane.global_transmembrane_label
                 + 0 * fixed_positions
             )
 
-        return protein_dict
+        return
 
-    def get_chain_mask(self, protein_dict):
+    def get_chain_mask(self):
         if isinstance(self.cfg.input.chains_to_design, str):
             chains_to_design_list = self.cfg.chains_to_design.split(",")
         else:
-            chains_to_design_list = protein_dict["chain_letters"]
+            chains_to_design_list = self.protein_dict["chain_letters"]
         chain_mask = torch.tensor(
             np.array(
                 [
                     item in chains_to_design_list
-                    for item in protein_dict["chain_letters"]
+                    for item in self.protein_dict["chain_letters"]
                 ],
                 dtype=np.int32,
             ),
@@ -381,7 +388,6 @@ class MPNN_designer:
 
     def set_chain_mask(
         self,
-        protein_dict,
         chain_mask,
         redesigned_residues,
         redesigned_positions,
@@ -391,32 +397,32 @@ class MPNN_designer:
     ):
         # create chain_mask to notify which residues are fixed (0) and which need to be designed (1)
         if redesigned_residues:
-            protein_dict["chain_mask"] = chain_mask * (1 - redesigned_positions)
+            self.protein_dict["chain_mask"] = chain_mask * (1 - redesigned_positions)
         elif fixed_residues:
-            protein_dict["chain_mask"] = chain_mask * fixed_positions
+            self.protein_dict["chain_mask"] = chain_mask * fixed_positions
         else:
-            protein_dict["chain_mask"] = chain_mask
+            self.protein_dict["chain_mask"] = chain_mask
 
         if self.cfg.runtime.verbose:
             PDB_residues_to_be_redesigned = [
                 encoded_residue_dict_rev[item]
-                for item in range(protein_dict["chain_mask"].shape[0])
-                if protein_dict["chain_mask"][item] == 1
+                for item in range(self.protein_dict["chain_mask"].shape[0])
+                if self.protein_dict["chain_mask"][item] == 1
             ]
             PDB_residues_to_be_fixed = [
                 encoded_residue_dict_rev[item]
-                for item in range(protein_dict["chain_mask"].shape[0])
-                if protein_dict["chain_mask"][item] == 0
+                for item in range(self.protein_dict["chain_mask"].shape[0])
+                if self.protein_dict["chain_mask"][item] == 0
             ]
             print("These residues will be redesigned: ", PDB_residues_to_be_redesigned)
             print("These residues will be fixed: ", PDB_residues_to_be_fixed)
 
-        return protein_dict
+        return None
 
     def parse_protein(self, pdb):
         fixed_residues = self.fixed_residues_multi[pdb]
         redesigned_residues = self.redesigned_residues_multi[pdb]
-        protein_dict, backbone, other_atoms, icodes, _ = parse_PDB(
+        self.protein_dict, backbone, other_atoms, icodes, _ = parse_PDB(
             pdb,
             device=self.device,
             chains=self.cfg.input.parse_these_chains_only,
@@ -425,7 +431,6 @@ class MPNN_designer:
         )
 
         return (
-            protein_dict,
             fixed_residues,
             redesigned_residues,
             other_atoms,
@@ -433,10 +438,10 @@ class MPNN_designer:
             icodes,
         )
 
-    def get_encoded_residues(self, protein_dict, icodes):
+    def get_encoded_residues(self, icodes):
         # make chain_letter + residue_idx + insertion_code mapping to integers
-        R_idx_list = list(protein_dict["R_idx"].cpu().numpy())  # residue indices
-        chain_letters_list = list(protein_dict["chain_letters"])  # chain letters
+        R_idx_list = list(self.protein_dict["R_idx"].cpu().numpy())  # residue indices
+        chain_letters_list = list(self.protein_dict["chain_letters"])  # chain letters
         encoded_residues = []
         for i, R_idx_item in enumerate(R_idx_list):
             tmp = str(chain_letters_list[i]) + str(R_idx_item) + icodes[i]
@@ -466,7 +471,7 @@ class MPNN_designer:
     def get_redesigned(self, encoded_residues, redesigned_residues):
         return self.get_positions(encoded_residues, redesigned_residues)
 
-    def run_sampling(self, feature_dict, name):
+    def run_sampling(self, name):
         sampling_probs_list = []
         log_probs_list = []
         decoding_order_list = []
@@ -475,26 +480,28 @@ class MPNN_designer:
         loss_per_residue_list = []
         loss_XY_list = []
         for _ in range(self.cfg.sampling.number_of_batches):
-            feature_dict["randn"] = torch.randn(
-                [feature_dict["batch_size"], feature_dict["mask"].shape[1]],
+            self.feature_dict["randn"] = torch.randn(
+                [self.feature_dict["batch_size"], self.feature_dict["mask"].shape[1]],
                 device=self.device,
             )
-            output_dict = self.model.sample(feature_dict)
+            output_dict = self.model.sample(self.feature_dict)
 
             # compute confidence scores
             loss, loss_per_residue = get_score(
                 output_dict["S"],
                 output_dict["log_probs"],
-                feature_dict["mask"] * feature_dict["chain_mask"],
+                self.feature_dict["mask"] * self.feature_dict["chain_mask"],
             )
             if self.cfg.model_type.use == "ligand_mpnn":
                 combined_mask = (
-                    feature_dict["mask"]
-                    * feature_dict["mask_XY"]
-                    * feature_dict["chain_mask"]
+                    self.feature_dict["mask"]
+                    * self.feature_dict["mask_XY"]
+                    * self.feature_dict["chain_mask"]
                 )
             else:
-                combined_mask = feature_dict["mask"] * feature_dict["chain_mask"]
+                combined_mask = (
+                    self.feature_dict["mask"] * self.feature_dict["chain_mask"]
+                )
             loss_XY, _ = get_score(
                 output_dict["S"], output_dict["log_probs"], combined_mask
             )
@@ -513,11 +520,11 @@ class MPNN_designer:
         loss_stack = torch.cat(loss_list, 0)
         loss_per_residue_stack = torch.cat(loss_per_residue_list, 0)
         loss_XY_stack = torch.cat(loss_XY_list, 0)
-        rec_mask = feature_dict["mask"][:1] * feature_dict["chain_mask"][:1]
-        rec_stack = get_seq_rec(feature_dict["S"][:1], S_stack, rec_mask)
+        rec_mask = self.feature_dict["mask"][:1] * self.feature_dict["chain_mask"][:1]
+        rec_stack = get_seq_rec(self.feature_dict["S"][:1], S_stack, rec_mask)
 
         native_seq = "".join(
-            [restype_int_to_str[AA] for AA in feature_dict["S"][0].cpu().numpy()]
+            [restype_int_to_str[AA] for AA in self.feature_dict["S"][0].cpu().numpy()]
         )
 
         out_dict = {}
@@ -525,9 +532,9 @@ class MPNN_designer:
         out_dict["sampling_probs"] = sampling_probs_stack.cpu()
         out_dict["log_probs"] = log_probs_stack.cpu()
         out_dict["decoding_order"] = decoding_order_stack.cpu()
-        out_dict["native_sequence"] = feature_dict["S"][0].cpu()
-        out_dict["mask"] = feature_dict["mask"][0].cpu()
-        out_dict["chain_mask"] = feature_dict["chain_mask"][0].cpu()
+        out_dict["native_sequence"] = self.feature_dict["S"][0].cpu()
+        out_dict["mask"] = self.feature_dict["mask"][0].cpu()
+        out_dict["chain_mask"] = self.feature_dict["chain_mask"][0].cpu()
         out_dict["seed"] = self.seed
         out_dict["temperature"] = self.cfg.sampling.temperature
 
@@ -555,7 +562,6 @@ class MPNN_designer:
                 print("Designing protein from this path:", pdb)
 
             (
-                protein_dict,
                 fixed_residues,
                 redesigned_residues,
                 other_atoms,
@@ -568,7 +574,7 @@ class MPNN_designer:
                 encoded_residue_dict,
                 encoded_residue_dict_rev,
                 chain_letters_list,
-            ) = self.get_encoded_residues(protein_dict, icodes)
+            ) = self.get_encoded_residues(icodes)
 
             bias_AA_per_residue = self.get_biased(
                 pdb, encoded_residues, encoded_residue_dict
@@ -583,14 +589,14 @@ class MPNN_designer:
                 encoded_residues, redesigned_residues
             )
 
-            protein_dict = self.process_transmembrane(
-                encoded_residues, fixed_positions, protein_dict
+            self.process_transmembrane(
+                encoded_residues,
+                fixed_positions,
             )
 
-            chain_mask = self.get_chain_mask(protein_dict)
+            chain_mask = self.get_chain_mask()
 
-            protein_dict = self.set_chain_mask(
-                protein_dict,
+            self.set_chain_mask(
                 chain_mask,
                 redesigned_residues,
                 redesigned_positions,
@@ -614,20 +620,22 @@ class MPNN_designer:
                 name = name[:-4]
 
             with torch.no_grad():
-                feature_dict = self.get_feature_dict(protein_dict)
+                self.feature_dict = self.get_feature_dict()
 
-                B, L, _, _ = feature_dict["X"].shape  # batch size should be 1 for now.
+                B, L, _, _ = self.feature_dict[
+                    "X"
+                ].shape  # batch size should be 1 for now.
                 # add additional keys to the feature dictionary
-                feature_dict["temperature"] = self.cfg.sampling.temperature
-                feature_dict["bias"] = (
+                self.feature_dict["temperature"] = self.cfg.sampling.temperature
+                self.feature_dict["bias"] = (
                     (-1e8 * self.omit_AA[None, None, :] + self.bias_AA).repeat(
                         [1, L, 1]
                     )
                     + bias_AA_per_residue[None]
                     - 1e8 * omit_AA_per_residue[None]
                 )
-                feature_dict["symmetry_residues"] = remapped_symmetry_residues
-                feature_dict["symmetry_weights"] = symmetry_weights
+                self.feature_dict["symmetry_residues"] = remapped_symmetry_residues
+                self.feature_dict["symmetry_weights"] = symmetry_weights
 
                 output_fasta = os.path.join(
                     self.seqs_folder, f"{name}{self.cfg.output.file_ending}.fa"
@@ -642,12 +650,12 @@ class MPNN_designer:
                     loss_XY_stack,
                     loss_per_residue_stack,
                     native_seq,
-                ) = self.run_sampling(feature_dict, name)
+                ) = self.run_sampling(name)
 
                 seq_np = np.array(list(native_seq))
 
                 seq_out_str = []
-                for mask in protein_dict["mask_c"]:
+                for mask in self.protein_dict["mask_c"]:
                     seq_out_str += list(seq_np[mask.cpu().numpy()])
                     seq_out_str += [self.cfg.output.fasta_seq_separation]
                 seq_out_str = "".join(seq_out_str)[:-1]
@@ -712,7 +720,7 @@ class MPNN_designer:
                     # write fasta lines
                     seq_np = np.array(list(seq))
                     seq_out_str = []
-                    for mask in protein_dict["mask_c"]:
+                    for mask in self.protein_dict["mask_c"]:
                         seq_out_str += list(seq_np[mask.cpu().numpy()])
                         seq_out_str += [self.cfg.output.fasta_seq_separation]
                     seq_out_str = "".join(seq_out_str)[:-1]
@@ -743,7 +751,6 @@ class MPNN_designer:
                 print("Designing protein from this path:", pdb)
 
             (
-                protein_dict,
                 fixed_residues,
                 redesigned_residues,
                 other_atoms,
@@ -756,7 +763,7 @@ class MPNN_designer:
                 encoded_residue_dict,
                 encoded_residue_dict_rev,
                 chain_letters_list,
-            ) = self.get_encoded_residues(protein_dict, icodes)
+            ) = self.get_encoded_residues(icodes)
 
             fixed_positions = self.get_fixed(encoded_residues, fixed_residues)
 
@@ -764,14 +771,11 @@ class MPNN_designer:
                 encoded_residues, redesigned_residues
             )
 
-            protein_dict = self.process_transmembrane(
-                encoded_residues, fixed_positions, protein_dict
-            )
+            self.process_transmembrane(encoded_residues, fixed_positions)
 
-            chain_mask = self.get_chain_mask(protein_dict)
+            chain_mask = self.get_chain_mask()
 
-            protein_dict = self.set_chain_mask(
-                protein_dict,
+            self.set_chain_mask(
                 chain_mask,
                 redesigned_residues,
                 redesigned_positions,
@@ -796,28 +800,33 @@ class MPNN_designer:
 
             with torch.no_grad():
                 # run featurize to remap R_idx and add batch dimension
-                feature_dict = self.get_feature_dict(protein_dict)
+                self.feature_dict = self.get_feature_dict()
 
-                B, L, _, _ = feature_dict["X"].shape  # batch size should be 1 for now.
+                B, L, _, _ = self.feature_dict[
+                    "X"
+                ].shape  # batch size should be 1 for now.
                 # add additional keys to the feature dictionary
-                feature_dict["symmetry_residues"] = remapped_symmetry_residues
+                self.feature_dict["symmetry_residues"] = remapped_symmetry_residues
 
                 logits_list = []
                 probs_list = []
                 log_probs_list = []
                 decoding_order_list = []
                 for _ in range(self.cfg.sampling.number_of_batches):
-                    feature_dict["randn"] = torch.randn(
-                        [feature_dict["batch_size"], feature_dict["mask"].shape[1]],
+                    self.feature_dict["randn"] = torch.randn(
+                        [
+                            self.feature_dict["batch_size"],
+                            self.feature_dict["mask"].shape[1],
+                        ],
                         device=self.device,
                     )
                     if self.cfg.scorer.autoregressive_score:
                         score_dict = self.model.score(
-                            feature_dict, use_sequence=self.cfg.scorer.use_sequence
+                            self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
                         )
                     elif self.cfg.scorer.single_aa_score:
                         score_dict = self.model.single_aa_score(
-                            feature_dict, use_sequence=self.cfg.scorer.use_sequence
+                            self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
                         )
                     else:
                         print(
@@ -841,10 +850,10 @@ class MPNN_designer:
                 out_dict["probs"] = probs_stack.cpu().numpy()
                 out_dict["log_probs"] = log_probs_stack.cpu().numpy()
                 out_dict["decoding_order"] = decoding_order_stack.cpu().numpy()
-                out_dict["native_sequence"] = feature_dict["S"][0].cpu().numpy()
-                out_dict["mask"] = feature_dict["mask"][0].cpu().numpy()
+                out_dict["native_sequence"] = self.feature_dict["S"][0].cpu().numpy()
+                out_dict["mask"] = self.feature_dict["mask"][0].cpu().numpy()
                 out_dict["chain_mask"] = (
-                    feature_dict["chain_mask"][0].cpu().numpy()
+                    self.feature_dict["chain_mask"][0].cpu().numpy()
                 )  # this affects decoding order
                 out_dict["seed"] = self.seed
                 out_dict["alphabet"] = alphabet

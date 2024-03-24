@@ -161,7 +161,7 @@ def main(args) -> None:
             device=device,
             chains=args.parse_these_chains_only,
             parse_all_atoms=args.ligand_mpnn_use_side_chain_context,
-            parse_atoms_with_zero_occupancy=args.parse_atoms_with_zero_occupancy
+            parse_atoms_with_zero_occupancy=args.parse_atoms_with_zero_occupancy,
         )
         # make chain_letter + residue_idx + insertion_code mapping to integers
         R_idx_list = list(protein_dict["R_idx"].cpu().numpy())  # residue indices

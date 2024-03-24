@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from immutabledict import immutabledict
 from abc import ABC, abstractmethod
@@ -10,7 +9,8 @@ class MPNN_sequence(ABC):
 
     @property
     @abstractmethod
-    def id(self): ...
+    def id(self):
+        ...
 
 
 @dataclass
