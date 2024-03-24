@@ -516,7 +516,7 @@ def parse_PDB(
     device: str = "cpu",
     chains: list = [],
     parse_all_atoms: bool = False,
-    parse_atoms_with_zero_occupancy: bool = False
+    parse_atoms_with_zero_occupancy: bool = False,
 ):
     """
     input_path : path for the input PDB
@@ -961,7 +961,9 @@ def featurize(
     ):
         output_dict["membrane_per_residue_labels"] = input_dict[
             "membrane_per_residue_labels"
-        ][None,]
+        ][
+            None,
+        ]
 
     R_idx_list = []
     count = 0

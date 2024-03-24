@@ -1,0 +1,36 @@
+[build-system]
+requires = ["poetry-core>=1.0.0,<2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "LigandMPNN"
+version = "0.0.1"
+description = "LigandMPNN code"
+authors = ["Name <email@address>"]
+
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/dauparas/LigandMPNN"
+classifiers = [
+    "Topic :: Scientific/Engineering :: Biochemistry",
+    "Topic :: Scientific/Engineering :: Protein Engineering"
+]
+
+packages = [
+    { include = "ligandmpnn" },
+    { include = "ligandmpnn/*.py" },
+]
+
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+numpy = "^1.20"
+pooch = "1.8.0"
+torch = "^2.0.1"
+torchvision = "^0.16.0"
+torchaudio =  "^2.0.1"
+prody = "2.4.1"
+hydra-core= "*"
+omegaconf = "*"
+immutabledict = "*"
+
