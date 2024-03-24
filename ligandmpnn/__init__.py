@@ -558,7 +558,7 @@ class MPNN_designer:
     def design_proteins(self):
         # loop over PDB paths
         for pdb in self.pdb_paths:
-            print(f'Processing {pdb=}')
+            print(f"Processing {pdb=}")
             self.design_proteins_single(pdb=pdb)
 
     def design_proteins_single(self, pdb):
@@ -745,11 +745,18 @@ class MPNN_designer:
     def score_proteins(self):
         # loop over PDB paths
         for pdb in self.pdb_paths:
-            print(f'Processing {pdb=}')
+            print(f"Processing {pdb=}")
             self.score_proteins_single(pdb=pdb)
 
     # from score.py
     def score_proteins_single(self, pdb):
+        if not (
+            self.cfg.scorer.autoregressive_score or self.cfg.scorer.single_aa_score
+        ):
+            raise RuntimeError(
+                "Set either autoregressive_score or single_aa_score to True"
+            )
+
         if self.cfg.runtime.verbose:
             print("Designing protein from this path:", pdb)
 
@@ -821,17 +828,16 @@ class MPNN_designer:
                     ],
                     device=self.device,
                 )
+
                 if self.cfg.scorer.autoregressive_score:
                     score_dict = self.model.score(
                         self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
                     )
-                elif self.cfg.scorer.single_aa_score:
+                else:
                     score_dict = self.model.single_aa_score(
                         self.feature_dict, use_sequence=self.cfg.scorer.use_sequence
                     )
-                else:
-                    print("Set either autoregressive_score or single_aa_score to True")
-                    sys.exit()
+
                 logits_list.append(score_dict["logits"])
                 log_probs_list.append(score_dict["log_probs"])
                 probs_list.append(torch.exp(score_dict["log_probs"]))
