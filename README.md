@@ -2,6 +2,8 @@
 
 This package provides inference code for [LigandMPNN](https://www.biorxiv.org/content/10.1101/2023.12.22.573103v1) & [ProteinMPNN](https://www.science.org/doi/10.1126/science.add2187) models. The code and model parameters are available under the MIT license.
 
+Third party code: side chain packing uses helper functions from [Openfold](https://github.com/aqlaboratory/openfold).
+
 ### Running the code
 ```
 git clone https://github.com/dauparas/LigandMPNN.git
@@ -77,7 +79,10 @@ To run the model of your choice specify `--model_type` and optionally the model 
 --model_type "per_residue_label_membrane_mpnn"
 --checkpoint_per_residue_label_membrane_mpnn "./model_params/per_residue_label_membrane_mpnn_v_48_020.pt" #noised with 0.20A Gaussian noise
 ```
-
+- Side chain packing model
+```
+--checkpoint_path_sc "./model_params/ligandmpnn_sc_v_32_002_16.pt"
+```
 ## Design examples
 ### 1 default
 Default settings will run ProteinMPNN.
@@ -530,6 +535,75 @@ python score.py \
         --use_sequence 0\
         --batch_size 1 \
         --number_of_batches 10
+```
+
+## Side chain packing examples
+
+### 1 design a new sequence and pack side chains (return 1 side chain packing sample - fast)
+Design a new sequence using any of the available models and also pack side chains of the new sequence. Return only a single solution for the side chain packing.
+```
+python run.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --pdb_path "./inputs/1BC8.pdb" \
+        --out_folder "./outputs/sc_default_fast" \
+        --pack_side_chains 1 \
+        --number_of_packs_per_design 0 \
+        --pack_with_ligand_context 1
+```
+### 2 design a new sequence and pack side chains (return 4 side chain packing samples) 
+Same as above, but returns 4 independent samples for side chains. b-factor shows log prob density per chi angle group.
+```
+python run.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --pdb_path "./inputs/1BC8.pdb" \
+        --out_folder "./outputs/sc_default" \
+        --pack_side_chains 1 \
+        --number_of_packs_per_design 4 \
+        --pack_with_ligand_context 1
+```
+
+### 3 fix specific residues fors sequence design and packing 
+This option will not repack side chains of the fixed residues, but use them as a context.
+```
+python run.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --pdb_path "./inputs/1BC8.pdb" \
+        --out_folder "./outputs/sc_fixed_residues" \
+        --pack_side_chains 1 \
+        --number_of_packs_per_design 4 \
+        --pack_with_ligand_context 1 \
+        --fixed_residues "C6 C7 C8 C9 C10 C11 C12 C13 C14 C15" \
+        --repack_everything 0
+```
+### 4 fix specific residues for sequence design but repack everything 
+This option will repacks all the residues.
+```
+python run.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --pdb_path "./inputs/1BC8.pdb" \
+        --out_folder "./outputs/sc_fixed_residues_full_repack" \
+        --pack_side_chains 1 \
+        --number_of_packs_per_design 4 \
+        --pack_with_ligand_context 1 \
+        --fixed_residues "C6 C7 C8 C9 C10 C11 C12 C13 C14 C15" \
+        --repack_everything 1
+```
+
+### 5 design a new sequence using LigandMPNN but pack side chains without considering ligand/DNA etc atoms
+You can run side chain packing without taking into account context atoms like DNA atoms. This most likely will results in side chain clashing with context atoms, but it might be interesting to see how model's uncertainty changes when ligand atoms are present vs not for side chain conformations.
+```
+python run.py \
+        --model_type "ligand_mpnn" \
+        --seed 111 \
+        --pdb_path "./inputs/1BC8.pdb" \
+        --out_folder "./outputs/sc_no_context" \
+        --pack_side_chains 1 \
+        --number_of_packs_per_design 4 \
+        --pack_with_ligand_context 0
 ```
 
 ### Things to add
