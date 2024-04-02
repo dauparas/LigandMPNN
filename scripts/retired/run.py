@@ -7,7 +7,9 @@ import sys
 
 import numpy as np
 import torch
-from data_utils import (
+from prody import writePDB
+
+from ligandmpnn.data_utils import (
     alphabet,
     element_dict_rev,
     featurize,
@@ -19,10 +21,9 @@ from data_utils import (
     restype_str_to_int,
     write_full_PDB,
 )
-from model_utils import ProteinMPNN
-from prody import writePDB
-from sc_utils import Packer, pack_side_chains
+from ligandmpnn.model_utils import ProteinMPNN
 
+from ligandmpnn.sc_utils import Packer, pack_side_chains
 
 def main(args) -> None:
     """
@@ -193,7 +194,7 @@ def main(args) -> None:
             pdb,
             device=device,
             chains=args.parse_these_chains_only,
-            parse_all_atoms=parse_all_atoms_flag,
+            parse_all_atoms=args.ligand_mpnn_use_side_chain_context,
             parse_atoms_with_zero_occupancy=args.parse_atoms_with_zero_occupancy,
         )
         # make chain_letter + residue_idx + insertion_code mapping to integers

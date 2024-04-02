@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.distributions as D
 import torch.nn as nn
-from model_utils import (
+from ligandmpnn.model_utils import (
     DecLayer,
     DecLayerJ,
     EncLayer,

@@ -1,0 +1,132 @@
+runtime:
+  verbose: True
+  mode: 
+    use: 'design'
+    all: 
+      - 'design'
+      - 'score'
+  force_cpu: True
+
+weight_dir: model_params/
+
+model_type: 
+  use: protein_mpnn
+  group:
+    - protein_mpnn
+    - ligand_mpnn
+    - per_residue_label_membrane_mpnn
+    - global_label_membrane_mpnn
+    - soluble_mpnn
+
+
+checkpoint: 
+  protein_mpnn:
+    group: 
+      - proteinmpnn_v_48_002
+      - proteinmpnn_v_48_010
+      - proteinmpnn_v_48_020
+      - proteinmpnn_v_48_030
+    use: proteinmpnn_v_48_020
+
+  ligandmpnn_sc:
+    use: ligandmpnn_sc_v_32_002_16
+  
+  ligand_mpnn:
+    group: 
+    - ligandmpnn_v_32_005_25
+    - ligandmpnn_v_32_010_25
+    - ligandmpnn_v_32_020_25
+    - ligandmpnn_v_32_030_25
+    use: ligandmpnn_v_32_010_25
+  
+  per_residue_label_membrane_mpnn:
+    use: per_residue_label_membrane_mpnn_v_48_020
+
+  global_label_membrane_mpnn:
+    use: global_label_membrane_mpnn_v_48_020
+
+
+  soluble_mpnn:
+    group: 
+    - solublempnn_v_48_002
+    - solublempnn_v_48_010
+    - solublempnn_v_48_020
+    - solublempnn_v_48_030
+    use: solublempnn_v_48_020
+  
+
+  
+
+sampling: 
+  seed: 42
+  batch_size: 1
+  number_of_batches: 1
+
+  temperature: 0.1
+
+  ligand_mpnn:
+    use_atom_context: True
+    use_side_chain_context: False
+    cutoff_for_score: 8.0
+
+
+input:
+  pdb: ""
+  pdb_path_multi: ""
+
+  chains_to_design: ""
+  parse_these_chains_only: ""
+
+  fixed_residues: ""
+  redesigned_residues: ""
+
+  fixed_residues_multi: ""
+  redesigned_residues_multi: ""
+
+  bias:
+    bias_AA: ""
+    bias_AA_per_residue: ""
+
+    omit_AA: ""
+    omit_AA_per_residue: ""
+
+    bias_AA_per_residue_multi: ""
+    omit_AA_per_residue_multi: ""
+
+  symmetry:
+    symmetry_residues: ""
+    symmetry_weights: ""
+    homo_oligomer: False
+  
+  transmembrane:
+    global_transmembrane_label: False
+    buried: ""
+    interface: ""
+
+  parse_atoms_with_zero_occupancy: False
+    
+
+output:
+  folder: "./output_dir"
+  file_ending: ""
+  save_stats: True
+  zero_indexed: False
+  fasta_seq_separation: ":"
+
+
+scorer:
+  use_sequence: True
+  autoregressive_score: False
+  single_aa_score: True
+
+packer:
+  # set true to enable repack
+  pack_side_chains: False
+
+  packed_suffix: _packed
+  repack_everything: False
+  number_of_packs_per_design: 4
+  pack_with_ligand_context: True
+  sc_num_denoising_steps: 3
+  sc_num_samples: 16
+  force_hetatm: True

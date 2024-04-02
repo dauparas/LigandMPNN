@@ -127,3 +127,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+/outputs
+/outputs
+/outputs/default
+/model_params
+/test
+*.pyc
+openfold.zip
+ligandmpnn/.DS_Store
+.DS_Store
+/outputs/*
