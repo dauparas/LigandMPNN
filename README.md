@@ -31,6 +31,16 @@ pip3 install torch
 pip install prody
 ```
 
+#### Digital Research Alliance of Canada (DRAC) clusters
+For some DRAC clusters (e.g. Graham), the above is not enough to run LigandMPNN.
+
+The following pip installs are needed in addition (do this in your `virtualenv`):
+```
+pip install ml_collections dm_tree
+```
+
+Also, in your `LigandMPNN/openfold/np` folder, change all file instances of `np.int` (if using a deprecated version) to `np.int32`. 
+
 ### Main differences compared with [ProteinMPNN](https://github.com/dauparas/ProteinMPNN) code
 - Input PDBs are parsed using [Prody](https://pypi.org/project/ProDy/) preserving protein residue indices, chain letters, and insertion codes. If there are missing residues in the input structure the output fasta file won't have added `X` to fill the gaps. The script outputs .fasta and .pdb files. It's recommended to use .pdb files since they will hold information about chain letters and residue indices.
 - Adding bias, fixing residues, and selecting residues to be redesigned now can be done using residue indices directly, e.g. A23 (means chain A residue with index 23), B42D (chain B, residue 42, insertion code D).
