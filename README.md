@@ -40,7 +40,7 @@ pip install ml_collections dm_tree
 ```
 
 Also, in your `LigandMPNN/openfold/np` folder, change all file instances of `np.int` (if using a deprecated version) to `np.int32` 
-(or another class like `int` or `np.int64` depending on desired precision). 
+(or another type like `int` or `np.int64` depending on desired precision). 
 
 ### Main differences compared with [ProteinMPNN](https://github.com/dauparas/ProteinMPNN) code
 - Input PDBs are parsed using [Prody](https://pypi.org/project/ProDy/) preserving protein residue indices, chain letters, and insertion codes. If there are missing residues in the input structure the output fasta file won't have added `X` to fill the gaps. The script outputs .fasta and .pdb files. It's recommended to use .pdb files since they will hold information about chain letters and residue indices.
