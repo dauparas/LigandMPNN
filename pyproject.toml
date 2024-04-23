@@ -46,10 +46,8 @@ dm-tree = {version = "^0.1.6",  optional = true}
 modelcif = {version = "0.7",  optional = true}
 openfold = {git = "https://github.com/aqlaboratory/openfold@80c85b54e1a81d9a66df3f1b6c257ff97f10acd3", optional = true}
 
-deepspeed =  {version = '0.12.4',  optional = true}
-
 # dllogger = {git = "https://github.com/NVIDIA/dllogger.git"}
 # flash-attention = {git = "https://github.com/Dao-AILab/flash-attention.git@5b838a8"
 
 [tool.poetry.extras]
-openfold = ["absl-py", "ml_collections","dm-tree","modelcif","deepspeed", "openfold"]
+openfold = ["absl-py", "ml_collections","dm-tree","modelcif", "openfold"]

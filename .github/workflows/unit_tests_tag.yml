@@ -13,6 +13,9 @@ jobs:
       matrix:
         os: 
           - ubuntu-latest
+          - windows-latest
+          - macos-14
+          - macos-13
         python-version: 
           - "3.9"
           - "3.10"
@@ -35,6 +38,7 @@ jobs:
       
       - name: Setup Conda on ${{ matrix.os }}
         uses: conda-incubator/setup-miniconda@v3
+        if: matrix.os != 'macos-14'
         with:
             miniforge-variant: Mambaforge
             miniforge-version: latest
@@ -43,7 +47,17 @@ jobs:
             auto-activate-base: false
             python-version: ${{ matrix.python-version }}
       
-      - name: Setup PyMOL on ${{ matrix.os }} - py${{ matrix.python-version }}
+      - name: Setup Conda on macos-latest
+        uses: conda-incubator/setup-miniconda@v3
+        if: matrix.os == 'macos-14'
+        with:
+            installer-url: https://github.com/conda-forge/miniforge/releases/download/24.3.0-0/Mambaforge-24.3.0-0-MacOSX-arm64.sh
+            auto-update-conda: false
+            activate-environment: ${{ env.conda_env }}
+            auto-activate-base: false
+            python-version: ${{ matrix.python-version }}
+      
+      - name: Setup conda env on ${{ matrix.os }} - py${{ matrix.python-version }}
         run: |
           conda install -c conda-forge openmm pdbfixer -n ${{ env.conda_env }} -y 
           conda info
@@ -53,12 +67,18 @@ jobs:
       - name: Install LigandMPNN on ${{ matrix.os }}
         run: |
           pip install .
-          pip install .[openfold]
 
-      - name: Full Unit Test on Ubuntu
+      - name: Unit Test on ${{ matrix.os }} w/o SC
         run: |
           bash ./run_examples.sh
           bash ./score_examples.sh
+
+      - name: Install OpenFold on ${{ matrix.os }}
+        run: |
+          pip install .[openfold]
+  
+      - name: Unit Test on ${{ matrix.os }} w/ SC
+        run: |
           bash ./sc_examples.sh
 
       
