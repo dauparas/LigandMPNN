@@ -121,7 +121,7 @@ python run.py \
         --seed 111 \
         --pdb_path "./inputs/4GYT.pdb" \
         --out_folder "./outputs/chains_to_design" \
-        --chains_to_design "B"
+        --chains_to_design "A,B"
 
 #18
 python run.py \
@@ -129,7 +129,7 @@ python run.py \
         --seed 111 \
         --pdb_path "./inputs/4GYT.pdb" \
         --out_folder "./outputs/parse_these_chains_only" \
-        --parse_these_chains_only "B"
+        --parse_these_chains_only "A,B"
 
 #19
 python run.py \
