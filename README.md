@@ -257,24 +257,24 @@ python run.py \
 ```
 
 ### 17 --chains_to_design
-Specify which chains (e.g. "ABC") need to be redesigned, other chains will be kept fixed. Outputs in seqs/backbones will still have atoms/sequences for the whole input PDB.
+Specify which chains (e.g. "A,B,C") need to be redesigned, other chains will be kept fixed. Outputs in seqs/backbones will still have atoms/sequences for the whole input PDB.
 ```
 python run.py \
         --model_type "ligand_mpnn" \
         --seed 111 \
         --pdb_path "./inputs/4GYT.pdb" \
         --out_folder "./outputs/chains_to_design" \
-        --chains_to_design "B"
+        --chains_to_design "A,B"
 ```
 ### 18 --parse_these_chains_only
-Parse and design only specified chains (e.g. "ABC"). Outputs will have only specified chains.
+Parse and design only specified chains (e.g. "A,B,C"). Outputs will have only specified chains.
 ```
 python run.py \
         --model_type "ligand_mpnn" \
         --seed 111 \
         --pdb_path "./inputs/4GYT.pdb" \
         --out_folder "./outputs/parse_these_chains_only" \
-        --parse_these_chains_only "B"
+        --parse_these_chains_only "A,B"
 ```
 
 ### 19 --model_type "ligand_mpnn"

@@ -124,7 +124,7 @@ python scripts/run.py \
         sampling.seed=111 \
         input.pdb="./inputs/4GYT.pdb" \
         output.folder="./outputs/chains_to_design" \
-        input.chains_to_design="B"
+        input.chains_to_design="A,B"
 
 #18
 python scripts/run.py \
@@ -132,7 +132,7 @@ python scripts/run.py \
         sampling.seed=111 \
         input.pdb="./inputs/4GYT.pdb" \
         output.folder="./outputs/parse_these_chains_only" \
-        input.parse_these_chains_only="B"
+        input.parse_these_chains_only="A,B"
 
 #19
 python scripts/run.py \

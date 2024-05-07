@@ -181,6 +181,12 @@ def main(args) -> None:
         device=device,
     )
 
+    if len(args.parse_these_chains_only) != 0:
+        parse_these_chains_only_list = args.parse_these_chains_only.split(",")
+    else:
+        parse_these_chains_only_list = []
+
+
     # loop over PDB paths
     for pdb in pdb_paths:
         if args.verbose:
@@ -193,7 +199,7 @@ def main(args) -> None:
         protein_dict, backbone, other_atoms, icodes, _ = parse_PDB(
             pdb,
             device=device,
-            chains=args.parse_these_chains_only,
+            chains=parse_these_chains_only_list,
             parse_all_atoms=args.ligand_mpnn_use_side_chain_context,
             parse_atoms_with_zero_occupancy=args.parse_atoms_with_zero_occupancy,
         )
@@ -270,10 +276,11 @@ def main(args) -> None:
             protein_dict["membrane_per_residue_labels"] = (
                 args.global_transmembrane_label + 0 * fixed_positions
             )
-        if type(args.chains_to_design) == str:
+        if len(args.chains_to_design) != 0:
             chains_to_design_list = args.chains_to_design.split(",")
         else:
             chains_to_design_list = protein_dict["chain_letters"]
+
         chain_mask = torch.tensor(
             np.array(
                 [
@@ -877,15 +884,15 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--chains_to_design",
         type=str,
-        default=None,
-        help="Specify which chains to redesign, all others will be kept fixed.",
+        default="",
+        help="Specify which chains to redesign, all others will be kept fixed, 'A,B,C,F'",
     )
 
     argparser.add_argument(
         "--parse_these_chains_only",
         type=str,
         default="",
-        help="Provide chains letters for parsing backbones, 'ABCF'",
+        help="Provide chains letters for parsing backbones, 'A,B,C,F'",
     )
 
     argparser.add_argument(
