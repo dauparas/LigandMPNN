@@ -24,6 +24,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.9"
+setuptools = '<70.0.0'
 numpy = "^1.20"
 pooch = "1.8.0"
 torch = "^2.0.1"

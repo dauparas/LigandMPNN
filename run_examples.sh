@@ -124,7 +124,7 @@ python scripts/run.py \
         sampling.seed=111 \
         input.pdb="./inputs/4GYT.pdb" \
         output.folder="./outputs/chains_to_design" \
-        input.chains_to_design="A,B"
+        input.chains_to_design=[A,B]
 
 #18
 python scripts/run.py \
@@ -132,7 +132,7 @@ python scripts/run.py \
         sampling.seed=111 \
         input.pdb="./inputs/4GYT.pdb" \
         output.folder="./outputs/parse_these_chains_only" \
-        input.parse_these_chains_only="A,B"
+        input.parse_these_chains_only=[A,B]
 
 #19
 python scripts/run.py \
@@ -245,3 +245,39 @@ python scripts/run.py \
         output.folder="./outputs/insertion_code" \
         input.redesigned_residues="B82 B82A B82B B82C" \
         input.parse_these_chains_only="B"
+
+#34
+mkdir -p customized_weight_dir_local
+curl 'https://files.ipd.uw.edu/pub/ligandmpnn/proteinmpnn_v_48_002.pt' -o customized_weight_dir_local/customized_proteinmpnn_v_48_002.pt
+ls customized_weight_dir_local
+python scripts/run.py \
+        sampling.seed=111 \
+        weight_dir="customized_weight_dir_local" \
+        checkpoint.customized.file=customized_weight_dir_local/customized_proteinmpnn_v_48_002.pt \
+        input.pdb="./inputs/1BC8.pdb" \
+        output.folder="./outputs/default_customozed_weight_local"
+
+
+#35
+mkdir -p customized_weight_dir_remote
+python scripts/run.py \
+        sampling.seed=111 \
+        weight_dir="customized_weight_dir_remote" \
+        checkpoint.customized.url='https://files.ipd.uw.edu/pub/ligandmpnn/proteinmpnn_v_48_020.pt' \
+        input.pdb="./inputs/1BC8.pdb" \
+        output.folder="./outputs/customized_weight_dir_remote"
+
+ls customized_weight_dir_remote
+
+
+#36
+mkdir -p customized_weight_dir_remote_hash
+python scripts/run.py \
+        sampling.seed=111 \
+        weight_dir="customized_weight_dir_remote_hash" \
+        checkpoint.customized.url='https://files.ipd.uw.edu/pub/ligandmpnn/proteinmpnn_v_48_010.pt' \
+        checkpoint.customized.known_hash='md5:4255760493a761d2b6cb0671a48e49b7' \
+        input.pdb="./inputs/1BC8.pdb" \
+        output.folder="./outputs/customized_weight_dir_remote_hash"
+
+ls customized_weight_dir_remote_hash

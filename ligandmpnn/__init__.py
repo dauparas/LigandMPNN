@@ -3,10 +3,11 @@ import json
 import os
 import random
 import sys
-from typing import List
+from typing import Iterable, List
 
 import numpy as np
 import torch
+import omegaconf
 
 from prody import writePDB
 from omegaconf import DictConfig
@@ -117,13 +118,35 @@ class MPNN_designer:
                 + ", ".join(model_types.keys())
             )
 
-        self.checkpoint_path = os.path.join(self.cfg.weight_dir, f"{use_model}.pt")
+        if file_path:=self.cfg.checkpoint.customized.file:
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f'A customized checkpoint file is given but not found: {file_path}')
+            self.checkpoint_path = file_path
+        elif url_path:=self.cfg.checkpoint.customized.url:
+            if not (url_path.startswith("http://") or url_path.startswith("https://")):
+                raise ValueError(f'A customized checkpoint url is given but not a valid url: {url_path}')
+            model_basename=os.path.basename(url_path)
 
-        os.makedirs(self.cfg.weight_dir, exist_ok=True)
-        if not os.path.exists(self.checkpoint_path):
-            MPNN_weights().fetch_one_weights(
-                download_dir=self.cfg.weight_dir, model=use_model
+            import pooch
+            known_hash=self.cfg.checkpoint.customized.known_hash
+            
+            pooch.retrieve(
+                url=url_path,
+                known_hash=known_hash if known_hash else None,
+                fname=model_basename,
+                path=self.cfg.weight_dir,
+                progressbar=True,
             )
+            self.checkpoint_path = os.path.join(self.cfg.weight_dir, model_basename)
+        else:
+
+            self.checkpoint_path = os.path.join(self.cfg.weight_dir, f"{use_model}.pt")
+
+            os.makedirs(self.cfg.weight_dir, exist_ok=True)
+            if not os.path.exists(self.checkpoint_path):
+                MPNN_weights().fetch_one_weights(
+                    download_dir=self.cfg.weight_dir, model=use_model
+                )
 
         self.checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
         if self.cfg.model_type.use == "ligand_mpnn":
@@ -417,10 +440,18 @@ class MPNN_designer:
         return
 
     def get_chain_mask(self):
-        if isinstance(self.cfg.input.chains_to_design, str) and len(self.cfg.input.chains_to_design) > 0:
-            chains_to_design_list = self.cfg.input.chains_to_design.split(",")
-        else:
+
+        if not (chains_to_design:=self.cfg.input.chains_to_design):
             chains_to_design_list = self.protein_dict["chain_letters"]
+        
+        elif isinstance(chains_to_design, str):
+            chains_to_design_list = chains_to_design.split(",")
+        elif isinstance(chains_to_design, Iterable):
+            chains_to_design_list = list(chains_to_design)
+        
+        else:
+            raise TypeError("Unknown chain_letters type: %s" % type(chains_to_design))
+        
         chain_mask = torch.tensor(
             np.array(
                 [
@@ -488,12 +519,16 @@ class MPNN_designer:
         )
     
     def get_chain_list(self) -> List:
-        if len(self.cfg.input.parse_these_chains_only) != 0:
-            parse_these_chains_only_list = self.cfg.input.parse_these_chains_only.split(",")
-        else:
-            parse_these_chains_only_list = []
+        parse_these_chains_only=self.cfg.input.parse_these_chains_only
+        if not parse_these_chains_only:
+            return []
+
+        if isinstance(parse_these_chains_only, str):
+            return parse_these_chains_only.split(",")
         
-        return parse_these_chains_only_list
+        if isinstance(parse_these_chains_only, Iterable):
+            return list(parse_these_chains_only)
+        return []
 
     def get_encoded_residues(self, icodes):
         # make chain_letter + residue_idx + insertion_code mapping to integers

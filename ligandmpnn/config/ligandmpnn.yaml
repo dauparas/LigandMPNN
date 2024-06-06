@@ -54,6 +54,11 @@ checkpoint:
     - solublempnn_v_48_030
     use: solublempnn_v_48_020
   
+  customized:
+    file: ""
+    url: ""
+    known_hash: ""
+
 
   
 
