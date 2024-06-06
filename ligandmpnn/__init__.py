@@ -3,6 +3,7 @@ import json
 import os
 import random
 import sys
+from typing import List
 
 import numpy as np
 import torch
@@ -416,7 +417,7 @@ class MPNN_designer:
         return
 
     def get_chain_mask(self):
-        if isinstance(self.cfg.input.chains_to_design, str):
+        if isinstance(self.cfg.input.chains_to_design, str) and len(self.cfg.input.chains_to_design) > 0:
             chains_to_design_list = self.cfg.input.chains_to_design.split(",")
         else:
             chains_to_design_list = self.protein_dict["chain_letters"]
@@ -469,10 +470,11 @@ class MPNN_designer:
     def parse_protein(self, pdb):
         fixed_residues = self.fixed_residues_multi[pdb]
         redesigned_residues = self.redesigned_residues_multi[pdb]
+        chain_list=self.get_chain_list()
         self.protein_dict, backbone, other_atoms, icodes, _ = parse_PDB(
             pdb,
             device=self.device,
-            chains=self.cfg.input.parse_these_chains_only,
+            chains=chain_list,
             parse_all_atoms=self.parse_all_atoms_flag,
             parse_atoms_with_zero_occupancy=self.cfg.input.parse_atoms_with_zero_occupancy,
         )
@@ -484,6 +486,14 @@ class MPNN_designer:
             backbone,
             icodes,
         )
+    
+    def get_chain_list(self) -> List:
+        if len(self.cfg.input.parse_these_chains_only) != 0:
+            parse_these_chains_only_list = self.cfg.input.parse_these_chains_only.split(",")
+        else:
+            parse_these_chains_only_list = []
+        
+        return parse_these_chains_only_list
 
     def get_encoded_residues(self, icodes):
         # make chain_letter + residue_idx + insertion_code mapping to integers
