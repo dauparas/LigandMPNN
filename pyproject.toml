@@ -52,3 +52,6 @@ openfold = {git = "https://github.com/aqlaboratory/openfold@80c85b54e1a81d9a66df
 
 [tool.poetry.extras]
 openfold = ["absl-py", "ml_collections","dm-tree","modelcif", "openfold"]
+
+[tool.poetry.scripts]
+ligandmpnn = "ligandmpnn:run"

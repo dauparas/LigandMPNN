@@ -4,38 +4,38 @@ cd $script_dir
 
 set -e 
 #1
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/default"
 #2
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         sampling.temperature=0.05 \
         output.folder="./outputs/temperature"
 
 #3
-python scripts/run.py \
+ligandmpnn \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/random_seed"
 
 #4
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         runtime.verbose=False \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/verbose"
 
 #5
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/save_stats" \
         output.save_stats=True
 
 #6
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/fix_residues" \
@@ -43,7 +43,7 @@ python scripts/run.py \
         input.bias.bias_AA="A:10.0"
 
 #7
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/redesign_residues" \
@@ -51,7 +51,7 @@ python scripts/run.py \
         input.bias.bias_AA="A:10.0"
 
 #8
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/batch_size" \
@@ -59,35 +59,35 @@ python scripts/run.py \
         sampling.number_of_batches=5
 
 #9
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         input.bias.bias_AA=\"W:3.0,P:3.0,C:3.0,A:-3.0\" \
         output.folder="./outputs/global_bias"
 
 #10
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         input.bias.bias_AA_per_residue="./inputs/bias_AA_per_residue.json" \
         output.folder="./outputs/per_residue_bias"
 
 #11
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         input.bias.omit_AA="CDFGHILMNPQRSTVWY" \
         output.folder="./outputs/global_omit"
 
 #12
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         input.bias.omit_AA_per_residue="./inputs/omit_AA_per_residue.json" \
         output.folder="./outputs/per_residue_omit"
 
 #13
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/symmetry" \
@@ -95,7 +95,7 @@ python scripts/run.py \
         input.symmetry.symmetry_weights=\"0.33,0.33,0.33+0.5,0.5+0.5,0.5\"
 
 #14
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/4GYT.pdb" \
@@ -104,14 +104,14 @@ python scripts/run.py \
         sampling.number_of_batches=2
 
 #15
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/file_ending" \
         output.file_ending="_xyz"
 
 #16
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/zero_indexed" \
@@ -119,7 +119,7 @@ python scripts/run.py \
         sampling.number_of_batches=2
 
 #17
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/4GYT.pdb" \
@@ -127,7 +127,7 @@ python scripts/run.py \
         input.chains_to_design=[A,B]
 
 #18
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/4GYT.pdb" \
@@ -135,14 +135,14 @@ python scripts/run.py \
         input.parse_these_chains_only=[A,B]
 
 #19
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/ligandmpnn_default"
 
 #20
-python scripts/run.py \
+ligandmpnn \
         checkpoint.ligand_mpnn.use="ligandmpnn_v_32_005_25" \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
@@ -150,7 +150,7 @@ python scripts/run.py \
         output.folder="./outputs/ligandmpnn_v_32_005_25"
 
 #21
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -158,7 +158,7 @@ python scripts/run.py \
         sampling.ligand_mpnn.use_atom_context=False 
 
 #22
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -167,14 +167,14 @@ python scripts/run.py \
         input.fixed_residues="C1 C2 C3 C4 C5 C6 C7 C8 C9 C10"
 
 #23
-python scripts/run.py \
+ligandmpnn \
         model_type.use="soluble_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/soluble_mpnn_default"
 
 #24
-python scripts/run.py \
+ligandmpnn \
         model_type.use="global_label_membrane_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -182,7 +182,7 @@ python scripts/run.py \
         input.transmembrane.global_transmembrane_label=False 
 
 #25
-python scripts/run.py \
+ligandmpnn \
         model_type.use="per_residue_label_membrane_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -191,47 +191,47 @@ python scripts/run.py \
         input.transmembrane.interface="C4 C5 C6 C22"
 
 #26
-python scripts/run.py \
+ligandmpnn \
         input.pdb="./inputs/1BC8.pdb" \
         output.folder="./outputs/fasta_seq_separation" \
         output.fasta_seq_separation=":"
 
 #27
-python scripts/run.py \
+ligandmpnn \
         input.pdb_path_multi="./inputs/pdb_ids.json" \
         output.folder="./outputs/pdb_path_multi" \
         sampling.seed=111
 
 #28
-python scripts/run.py \
+ligandmpnn \
         input.pdb_path_multi="./inputs/pdb_ids.json" \
         input.fixed_residues_multi="./inputs/fix_residues_multi.json" \
         output.folder="./outputs/fixed_residues_multi" \
         sampling.seed=111
 
 #29
-python scripts/run.py \
+ligandmpnn \
         input.pdb_path_multi="./inputs/pdb_ids.json" \
         input.redesigned_residues_multi="./inputs/redesigned_residues_multi.json" \
         output.folder="./outputs/redesigned_residues_multi" \
         sampling.seed=111
 
 #30
-python scripts/run.py \
+ligandmpnn \
         input.pdb_path_multi="./inputs/pdb_ids.json" \
         input.bias.omit_AA_per_residue_multi="./inputs/omit_AA_per_residue_multi.json" \
         output.folder="./outputs/omit_AA_per_residue_multi" \
         sampling.seed=111
 
 #31
-python scripts/run.py \
+ligandmpnn \
         input.pdb_path_multi="./inputs/pdb_ids.json" \
         input.bias.bias_AA_per_residue_multi="./inputs/bias_AA_per_residue_multi.json" \
         output.folder="./outputs/bias_AA_per_residue_multi" \
         sampling.seed=111
 
 #32
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -239,7 +239,7 @@ python scripts/run.py \
         output.folder="./outputs/ligand_mpnn_cutoff_for_score"
 
 #33
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         input.pdb="./inputs/2GFB.pdb" \
         output.folder="./outputs/insertion_code" \
@@ -250,7 +250,7 @@ python scripts/run.py \
 mkdir -p customized_weight_dir_local
 curl 'https://files.ipd.uw.edu/pub/ligandmpnn/proteinmpnn_v_48_002.pt' -o customized_weight_dir_local/customized_proteinmpnn_v_48_002.pt
 ls customized_weight_dir_local
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         weight_dir="customized_weight_dir_local" \
         checkpoint.customized.file=customized_weight_dir_local/customized_proteinmpnn_v_48_002.pt \
@@ -260,7 +260,7 @@ python scripts/run.py \
 
 #35
 mkdir -p customized_weight_dir_remote
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         weight_dir="customized_weight_dir_remote" \
         checkpoint.customized.url='https://files.ipd.uw.edu/pub/ligandmpnn/proteinmpnn_v_48_020.pt' \
@@ -272,7 +272,7 @@ ls customized_weight_dir_remote
 
 #36
 mkdir -p customized_weight_dir_remote_hash
-python scripts/run.py \
+ligandmpnn \
         sampling.seed=111 \
         weight_dir="customized_weight_dir_remote_hash" \
         checkpoint.customized.url='https://files.ipd.uw.edu/pub/ligandmpnn/proteinmpnn_v_48_010.pt' \

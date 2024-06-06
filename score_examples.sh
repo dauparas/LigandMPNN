@@ -4,7 +4,7 @@ script_dir=$(dirname $0)
 cd $script_dir
 set -e 
 
-python scripts/run.py \
+ligandmpnn \
         runtime.mode.use='score' \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
@@ -15,7 +15,7 @@ python scripts/run.py \
         sampling.batch_size=1 \
         sampling.number_of_batches=10
 
-python scripts/run.py \
+ligandmpnn \
         runtime.mode.use='score' \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
@@ -27,7 +27,7 @@ python scripts/run.py \
         sampling.number_of_batches=10
 
 
-python scripts/run.py \
+ligandmpnn \
         runtime.mode.use='score' \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
@@ -39,7 +39,7 @@ python scripts/run.py \
         sampling.number_of_batches=10
 
 
-python scripts/run.py \
+ligandmpnn \
         runtime.mode.use='score' \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \

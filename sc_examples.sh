@@ -4,7 +4,7 @@ cd $script_dir
 set -e 
 
 #1 design a new sequence and pack side chains (return 1 side chain packing sample - fast) 
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -14,7 +14,7 @@ python scripts/run.py \
         packer.pack_with_ligand_context=True
 
 #2 design a new sequence and pack side chains (return 4 side chain packing samples) 
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -25,7 +25,7 @@ python scripts/run.py \
 
 
 #3 fix specific residues for design and packing 
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -37,7 +37,7 @@ python scripts/run.py \
         packer.repack_everything=False
 
 #4 fix specific residues for sequence design but repack everything 
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \
@@ -50,7 +50,7 @@ python scripts/run.py \
 
 
 #5 design a new sequence using LigandMPNN but pack side chains without considering ligand/DNA etc atoms 
-python scripts/run.py \
+ligandmpnn \
         model_type.use="ligand_mpnn" \
         sampling.seed=111 \
         input.pdb="./inputs/1BC8.pdb" \

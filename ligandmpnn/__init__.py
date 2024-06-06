@@ -3,8 +3,9 @@ import json
 import os
 import random
 import sys
-from typing import Iterable, List
+from typing import Iterable, List, Literal
 
+import hydra
 import numpy as np
 import torch
 import omegaconf
@@ -32,6 +33,28 @@ from ligandmpnn.dataclass_utils import (
     MPNN_weights,
 )
 
+
+
+config_dir = os.path.join(os.path.dirname(__file__), "config")
+
+
+@hydra.main(config_path=config_dir, config_name="ligandmpnn", version_base=None)
+def run(cfg: DictConfig) -> None:
+    """
+    Inference function
+    """
+
+    # instantializing design
+    magician: MPNN_designer = MPNN_designer(cfg)
+    mode : Literal["design", "score"] = cfg.runtime.mode.use
+
+    if mode == "design":
+        print(f"Mode: {mode}")
+        magician.design_proteins()
+
+    else:
+        print(f"Mode: {mode}")
+        magician.score_proteins()
 
 
 # rewriten from run.py
