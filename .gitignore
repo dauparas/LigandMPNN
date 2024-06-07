@@ -138,3 +138,6 @@ openfold.zip
 ligandmpnn/.DS_Store
 .DS_Store
 /outputs/*
+/customized_weight_dir_remote_hash
+/customized_weight_dir_local
+/customized_weight_dir_remote

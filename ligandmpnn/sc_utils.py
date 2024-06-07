@@ -1,10 +1,13 @@
+from dataclasses import dataclass
 import sys
+from typing import Tuple
 
 import numpy as np
 import torch
 import torch.distributions as D
 import torch.nn as nn
-from ligandmpnn.model_utils import (
+from .dataclass_utils import MPNN_Feature
+from .model_utils import (
     DecLayer,
     DecLayerJ,
     EncLayer,
@@ -55,40 +58,61 @@ map_mpnn_to_af2_seq = torch.tensor(
 )
 
 
+@dataclass
+class Torsion:
+    xyz14_noised: torch.Tensor=None
+    xyz14_m: torch.Tensor=None
+    aatype: torch.Tensor=None
+    all_atom_positions: torch.Tensor=None
+    all_atom_mask: torch.Tensor=None
+    torsion_angles_sin_cos: torch.Tensor=None
+    alt_torsion_angles_sin_cos: torch.Tensor=None
+    torsion_angles_mask: torch.Tensor=None
+    mask_for_loss: torch.Tensor=None
+    rigids:Rigid=None
+    torsions_noised: torch.Tensor=None
+    mask_fix_sc: torch.Tensor=None
+    torsions_true: torch.Tensor=None
+    S_af2: torch.Tensor=None
+
+
+
 def pack_side_chains(
-    feature_dict,
-    model_sc,
+    feature_dict:MPNN_Feature,
+    model_sc: 'Packer',
     num_denoising_steps,
     num_samples=10,
     repack_everything=True,
     num_context_atoms=16,
 ):
-    device = feature_dict["X"].device
-    torsion_dict = make_torsion_features(feature_dict, repack_everything)
-    feature_dict["X"] = torsion_dict["xyz14_noised"]
-    feature_dict["X_m"] = torsion_dict["xyz14_m"]
-    if "Y" not in list(feature_dict):
-        feature_dict["Y"] = torch.zeros(
+    device = feature_dict.X.device
+    _torsion_dict = make_torsion_features(feature_dict, repack_everything)
+    torsion_dict=Torsion(**_torsion_dict)
+
+    feature_dict.X = torsion_dict.xyz14_noised
+    feature_dict.X_m = torsion_dict.xyz14_m
+    if feature_dict.Y == None:
+        feature_dict.Y = torch.zeros(
             [
-                feature_dict["X"].shape[0],
-                feature_dict["X"].shape[1],
+                feature_dict.X.shape[0],
+                feature_dict.X.shape[1],
                 num_context_atoms,
                 3,
             ],
             device=device,
         )
-        feature_dict["Y_t"] = torch.zeros(
-            [feature_dict["X"].shape[0], feature_dict["X"].shape[1], num_context_atoms],
+        feature_dict.Y_t = torch.zeros(
+            [feature_dict.X.shape[0], feature_dict.X.shape[1], num_context_atoms],
             device=device,
         )
-        feature_dict["Y_m"] = torch.zeros(
-            [feature_dict["X"].shape[0], feature_dict["X"].shape[1], num_context_atoms],
+        feature_dict.Y_m = torch.zeros(
+            [feature_dict.X.shape[0], feature_dict.X.shape[1], num_context_atoms],
             device=device,
         )
     h_V, h_E, E_idx = model_sc.encode(feature_dict)
-    feature_dict["h_V"] = h_V
-    feature_dict["h_E"] = h_E
-    feature_dict["E_idx"] = E_idx
+    feature_dict.h_V = h_V
+    feature_dict.h_E = h_E
+    feature_dict.E_idx = E_idx
     for step in range(num_denoising_steps):
         mean, concentration, mix_logits = model_sc.decode(feature_dict)
         mix = D.Categorical(logits=mix_logits)
@@ -102,32 +126,30 @@ def pack_side_chains(
         torsions_pred_unit = torch.cat(
             [torch.sin(sample[:, :, :, None]), torch.cos(sample[:, :, :, None])], -1
         )
-        torsion_dict["torsions_noised"][:, :, 3:] = torsions_pred_unit * torsion_dict[
-            "mask_fix_sc"
-        ] + torsion_dict["torsions_true"] * (1 - torsion_dict["mask_fix_sc"])
+        torsion_dict.torsions_noised[:, :, 3:] = torsions_pred_unit * torsion_dict.mask_fix_sc+ torsion_dict.torsions_true * (1 - torsion_dict.mask_fix_sc)
         pred_frames = feats.torsion_angles_to_frames(
-            torsion_dict["rigids"],
-            torsion_dict["torsions_noised"],
-            torsion_dict["aatype"],
+            torsion_dict.rigids,
+            torsion_dict.torsions_noised,
+            torsion_dict.aatype,
             torch.tensor(restype_rigid_group_default_frame, device=device),
         )
         xyz14_noised = feats.frames_and_literature_positions_to_atom14_pos(
             pred_frames,
-            torsion_dict["aatype"],
+            torsion_dict.aatype,
             torch.tensor(restype_rigid_group_default_frame, device=device),
             torch.tensor(restype_atom14_to_rigid_group, device=device),
             torch.tensor(restype_atom14_mask, device=device),
             torch.tensor(restype_atom14_rigid_group_positions, device=device),
         )
-        xyz14_noised = xyz14_noised * feature_dict["X_m"][:, :, :, None]
-        feature_dict["X"] = xyz14_noised
-        S_af2 = torsion_dict["S_af2"]
+        xyz14_noised = xyz14_noised * feature_dict.X_m[:, :, :, None]
+        feature_dict.X = xyz14_noised
+        S_af2 = torsion_dict.S_af2
 
-    feature_dict["X"] = xyz14_noised
+    feature_dict.X = xyz14_noised
 
-    log_prob = pred_dist.log_prob(sample) * torsion_dict["mask_fix_sc"][
+    log_prob = pred_dist.log_prob(sample) * torsion_dict.mask_fix_sc[
         ..., 0
-    ] + 2.0 * (1 - torsion_dict["mask_fix_sc"][..., 0])
+    ] + 2.0 * (1 - torsion_dict.mask_fix_sc[..., 0])
 
     tmp_types = torch.tensor(restype_atom14_to_rigid_group, device=device)[S_af2]
     tmp_types[tmp_types < 4] = 4
@@ -136,28 +158,28 @@ def pack_side_chains(
 
     uncertainty = log_prob[:, :, None, :] * atom_types_for_b_factor  # [B,L,14,4]
     b_factor_pred = uncertainty.sum(-1)  # [B, L, 14]
-    feature_dict["b_factors"] = b_factor_pred
-    feature_dict["mean"] = mean
-    feature_dict["concentration"] = concentration
-    feature_dict["mix_logits"] = mix_logits
-    feature_dict["log_prob"] = log_prob
-    feature_dict["sample"] = sample
-    feature_dict["true_torsion_sin_cos"] = torsion_dict["torsions_true"]
+    feature_dict.b_factors = b_factor_pred
+    feature_dict.mean = mean
+    feature_dict.concentration = concentration
+    feature_dict.mix_logits = mix_logits
+    feature_dict.log_prob = log_prob
+    feature_dict.sample = sample
+    feature_dict.true_torsion_sin_cos = torsion_dict.torsions_true
     return feature_dict
 
 
-def make_torsion_features(feature_dict, repack_everything=True):
-    device = feature_dict["mask"].device
+def make_torsion_features(feature_dict:MPNN_Feature, repack_everything=True):
+    device = feature_dict.mask.device
 
-    mask = feature_dict["mask"]
+    mask = feature_dict.mask
     B, L = mask.shape
 
     xyz37 = torch.zeros([B, L, 37, 3], device=device, dtype=torch.float32)
-    xyz37[:, :, :3] = feature_dict["X"][:, :, :3]
-    xyz37[:, :, 4] = feature_dict["X"][:, :, 3]
+    xyz37[:, :, :3] = feature_dict.X[:, :, :3]
+    xyz37[:, :, 4] = feature_dict.X[:, :, 3]
 
     S_af2 = torch.argmax(
-        torch.nn.functional.one_hot(feature_dict["S"], 21).float()
+        torch.nn.functional.one_hot(feature_dict.S, 21).float()
         @ map_mpnn_to_af2_seq.to(device).float(),
         -1,
     )
@@ -177,7 +199,7 @@ def make_torsion_features(feature_dict, repack_everything=True):
     )
 
     if not repack_everything:
-        xyz37_true = feature_dict["xyz_37"]
+        xyz37_true = feature_dict.xyz_37
         temp_dict_true = {
             "aatype": S_af2,
             "all_atom_positions": xyz37_true,
@@ -187,7 +209,7 @@ def make_torsion_features(feature_dict, repack_everything=True):
         torsions_true = torch.clone(torsion_dict_true["torsion_angles_sin_cos"])[
             :, :, 3:
         ]
-        mask_fix_sc = feature_dict["chain_mask"][:, :, None, None]
+        mask_fix_sc = feature_dict.chain_mask[:, :, None, None]
     else:
         torsions_true = torch.zeros([B, L, 4, 2], device=device)
         mask_fix_sc = torch.ones([B, L, 1, 1], device=device)
@@ -335,8 +357,8 @@ class Packer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def encode(self, feature_dict):
-        mask = feature_dict["mask"]
+    def encode(self, feature_dict:MPNN_Feature) -> Tuple[torch.Tensor]:
+        mask = feature_dict.mask
         V, E, E_idx, Y_nodes, Y_edges, E_context, Y_m = self.features.features_encode(
             feature_dict
         )
@@ -363,11 +385,11 @@ class Packer(nn.Module):
 
         return h_V, h_E, E_idx
 
-    def decode(self, feature_dict):
-        h_V = feature_dict["h_V"]
-        h_E = feature_dict["h_E"]
-        E_idx = feature_dict["E_idx"]
-        mask = feature_dict["mask"]
+    def decode(self, feature_dict:MPNN_Feature):
+        h_V = feature_dict.h_V
+        h_E = feature_dict.h_E
+        E_idx = feature_dict.E_idx
+        mask = feature_dict.mask
         device = h_V.device
         V, F = self.features.features_decode(feature_dict)
 
@@ -924,18 +946,18 @@ class ProteinFeatures(nn.Module):
         )
         return RBF_A_B
 
-    def features_encode(self, features):
+    def features_encode(self, features: MPNN_Feature):
         """
         make protein graph and encode backbone
         """
-        S = features["S"]
-        X = features["X"]
-        Y = features["Y"]
-        Y_m = features["Y_m"]
-        Y_t = features["Y_t"]
-        mask = features["mask"]
-        R_idx = features["R_idx"]
-        chain_labels = features["chain_labels"]
+        S = features.S
+        X = features.X
+        Y = features.Y
+        Y_m = features.Y_m
+        Y_t = features.Y_t
+        mask = features.mask
+        R_idx = features.R_idx
+        chain_labels = features.chain_labels
 
         if self.training and self.augment_eps > 0:
             X = X + self.augment_eps * torch.randn_like(X)
@@ -1076,20 +1098,20 @@ class ProteinFeatures(nn.Module):
 
         return V, E, E_idx, Y_nodes, Y_edges, E_context, Y_m
 
-    def features_decode(self, features):
+    def features_decode(self, features: MPNN_Feature):
         """
         Make features for decoding. Explicit side chain atom and other atom distances.
         """
 
-        S = features["S"]
-        X = features["X"]
-        X_m = features["X_m"]
-        mask = features["mask"]
-        E_idx = features["E_idx"]
+        S = features.S
+        X = features.X
+        X_m = features.X_m
+        mask = features.mask
+        E_idx = features.E_idx
 
-        Y = features["Y"][:, :, : self.atom_context_num]
-        Y_m = features["Y_m"][:, :, : self.atom_context_num]
-        Y_t = features["Y_t"][:, :, : self.atom_context_num]
+        Y = features.Y[:, :, : self.atom_context_num]
+        Y_m = features.Y_m[:, :, : self.atom_context_num]
+        Y_t = features.Y_t[:, :, : self.atom_context_num]
 
         X_m = X_m * mask[:, :, None]
         device = S.device

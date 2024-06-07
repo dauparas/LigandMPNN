@@ -2,9 +2,17 @@ from __future__ import print_function
 
 import itertools
 import sys
+from typing import Any, Dict, Literal, Union
 
 import numpy as np
 import torch
+
+import dataclasses
+from abc import ABC, abstractmethod
+
+from ligandmpnn.data_utils import sequence_to_tensor
+
+from .dataclass_utils import MPNN_Feature,MPNN_MODEL_TYPE_HINT,MPNN_MODEL_TYPE
 
 
 class ProteinMPNN(torch.nn.Module):
@@ -22,7 +30,7 @@ class ProteinMPNN(torch.nn.Module):
         dropout=0.0,
         device=None,
         atom_context_num=0,
-        model_type="protein_mpnn",
+        model_type:MPNN_MODEL_TYPE_HINT="protein_mpnn",
         ligand_mpnn_use_side_chain_context=False,
     ):
         super(ProteinMPNN, self).__init__()
@@ -31,6 +39,10 @@ class ProteinMPNN(torch.nn.Module):
         self.node_features = node_features
         self.edge_features = edge_features
         self.hidden_dim = hidden_dim
+        self.features:ProteinFeaturesAbstract=None
+
+        if self.model_type not in MPNN_MODEL_TYPE:
+            raise RuntimeError(f"model_type must be one of {MPNN_MODEL_TYPE}")
 
         if self.model_type == "ligand_mpnn":
             self.features = ProteinFeaturesLigand(
@@ -77,9 +89,7 @@ class ProteinMPNN(torch.nn.Module):
                 augment_eps=augment_eps,
                 num_classes=3,
             )
-        else:
-            print("Choose --model_type flag from currently available models")
-            sys.exit()
+
 
         self.W_e = torch.nn.Linear(edge_features, hidden_dim, bias=True)
         self.W_s = torch.nn.Embedding(vocab, hidden_dim)
@@ -108,27 +118,23 @@ class ProteinMPNN(torch.nn.Module):
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
-    def encode(self, feature_dict):
+    def encode(self, feature_dict:MPNN_Feature):
         # xyz_37 = feature_dict["xyz_37"] #[B,L,37,3] - xyz coordinates for all atoms if needed
         # xyz_37_m = feature_dict["xyz_37_m"] #[B,L,37] - mask for all coords
         # Y = feature_dict["Y"] #[B,L,num_context_atoms,3] - for ligandMPNN coords
         # Y_t = feature_dict["Y_t"] #[B,L,num_context_atoms] - element type
         # Y_m = feature_dict["Y_m"] #[B,L,num_context_atoms] - mask
         # X = feature_dict["X"] #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
-        S_true = feature_dict[
-            "S"
-        ]  # [B,L] - integer protein sequence encoded using "restype_STRtoINT"
+        S_true = feature_dict.S # [B,L] - integer protein sequence encoded using "restype_STRtoINT"
         # R_idx = feature_dict["R_idx"] #[B,L] - primary sequence residue index
-        mask = feature_dict[
-            "mask"
-        ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
+        mask = feature_dict.mask # [B,L] - mask for missing regions - should be removed! all ones most of the time
         # chain_labels = feature_dict["chain_labels"] #[B,L] - integer labels for chain letters
 
         B, L = S_true.shape
         device = S_true.device
 
         if self.model_type == "ligand_mpnn":
-            V, E, E_idx, Y_nodes, Y_edges, Y_m = self.features(feature_dict)
+            V, E, E_idx, Y_nodes, Y_edges, Y_m = self.features(dataclasses.asdict(feature_dict))
             h_V = torch.zeros((E.shape[0], E.shape[1], E.shape[-1]), device=device)
             h_E = self.W_e(E)
             h_E_context = self.W_v(V)
@@ -154,7 +160,7 @@ class ProteinMPNN(torch.nn.Module):
             h_V_C = self.V_C(h_V_C)
             h_V = h_V + self.V_C_norm(self.dropout(h_V_C))
         elif self.model_type == "protein_mpnn" or self.model_type == "soluble_mpnn":
-            E, E_idx = self.features(feature_dict)
+            E, E_idx = self.features(dataclasses.asdict(feature_dict))
             h_V = torch.zeros((E.shape[0], E.shape[1], E.shape[-1]), device=device)
             h_E = self.W_e(E)
 
@@ -166,7 +172,7 @@ class ProteinMPNN(torch.nn.Module):
             self.model_type == "per_residue_label_membrane_mpnn"
             or self.model_type == "global_label_membrane_mpnn"
         ):
-            V, E, E_idx = self.features(feature_dict)
+            V, E, E_idx = self.features(dataclasses.asdict(feature_dict))
             h_V = self.W_v(V)
             h_E = self.W_e(E)
 
@@ -177,38 +183,24 @@ class ProteinMPNN(torch.nn.Module):
 
         return h_V, h_E, E_idx
 
-    def sample(self, feature_dict):
+    def sample(self, feature_dict:MPNN_Feature):
         # xyz_37 = feature_dict["xyz_37"] #[B,L,37,3] - xyz coordinates for all atoms if needed
         # xyz_37_m = feature_dict["xyz_37_m"] #[B,L,37] - mask for all coords
         # Y = feature_dict["Y"] #[B,L,num_context_atoms,3] - for ligandMPNN coords
         # Y_t = feature_dict["Y_t"] #[B,L,num_context_atoms] - element type
         # Y_m = feature_dict["Y_m"] #[B,L,num_context_atoms] - mask
         # X = feature_dict["X"] #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
-        B_decoder = feature_dict["batch_size"]
-        S_true = feature_dict[
-            "S"
-        ]  # [B,L] - integer proitein sequence encoded using "restype_STRtoINT"
+        B_decoder = feature_dict.batch_size
+        S_true = feature_dict.S  # [B,L] - integer proitein sequence encoded using "restype_STRtoINT"
         # R_idx = feature_dict["R_idx"] #[B,L] - primary sequence residue index
-        mask = feature_dict[
-            "mask"
-        ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
-        chain_mask = feature_dict[
-            "chain_mask"
-        ]  # [B,L] - mask for which residues need to be fixed; 0.0 - fixed; 1.0 - will be designed
-        bias = feature_dict["bias"]  # [B,L,21] - amino acid bias per position
+        mask = feature_dict.mask  # [B,L] - mask for missing regions - should be removed! all ones most of the time
+        chain_mask = feature_dict.chain_mask # [B,L] - mask for which residues need to be fixed; 0.0 - fixed; 1.0 - will be designed
+        bias = feature_dict.bias  # [B,L,21] - amino acid bias per position
         # chain_labels = feature_dict["chain_labels"] #[B,L] - integer labels for chain letters
-        randn = feature_dict[
-            "randn"
-        ]  # [B,L] - random numbers for decoding order; only the first entry is used since decoding within a batch needs to match for symmetry
-        temperature = feature_dict[
-            "temperature"
-        ]  # float - sampling temperature; prob = softmax(logits/temperature)
-        symmetry_list_of_lists = feature_dict[
-            "symmetry_residues"
-        ]  # [[0, 1, 14], [10,11,14,15], [20, 21]] #indices to select X over length - L
-        symmetry_weights_list_of_lists = feature_dict[
-            "symmetry_weights"
-        ]  # [[1.0, 1.0, 1.0], [-2.0,1.1,0.2,1.1], [2.3, 1.1]]
+        randn = feature_dict.randn # [B,L] - random numbers for decoding order; only the first entry is used since decoding within a batch needs to match for symmetry
+        temperature = feature_dict.temperature # float - sampling temperature; prob = softmax(logits/temperature)
+        symmetry_list_of_lists = feature_dict.symmetry_residues # [[0, 1, 14], [10,11,14,15], [20, 21]] #indices to select X over length - L
+        symmetry_weights_list_of_lists = feature_dict.symmetry_weights # [[1.0, 1.0, 1.0], [-2.0,1.1,0.2,1.1], [2.3, 1.1]]
 
         B, L = S_true.shape
         device = S_true.device
@@ -472,38 +464,62 @@ class ProteinMPNN(torch.nn.Module):
             }
         return output_dict
 
-    def single_aa_score(self, feature_dict, use_sequence: bool):
+    def single_aa_score(self, feature_dict:MPNN_Feature, use_sequence: bool)-> Dict[str, Union[Any, torch.Tensor]]:
         """
-        feature_dict - input features
-        use_sequence - False using backbone info only
+        Calculate the scoring function for a single amino acid sequence.
+
+        This function uses a message passing neural network (MPNN) to encode protein structure information,
+        and then decodes the amino acid sequence based on this information. It supports using either the
+        provided custom sequence or the sequence derived from the protein structure.
+
+        Parameters:
+        feature_dict: MPNN_Feature, contains the input features of the protein structure, including
+                      the encoded sequence information, masking information, etc.
+        use_sequence: bool, indicates whether to use the actual amino acid sequence during decoding.
+        
+        Returns:
+        A dictionary containing the predicted amino acid sequence, log probabilities, logits, and decoding order.
         """
-        B_decoder = feature_dict["batch_size"]
-        S_true_enc = feature_dict["S"]
-        mask_enc = feature_dict["mask"]
-        chain_mask_enc = feature_dict["chain_mask"]
-        randn = feature_dict["randn"]
+        # Get the batch size
+        B_decoder = feature_dict.batch_size
+        
+        S_true_enc = feature_dict.S
+    
+        # Get other necessary information from the feature dictionary
+        mask_enc = feature_dict.mask
+        chain_mask_enc = feature_dict.chain_mask
+        randn = feature_dict.randn
+        # Get the shape of the true sequence
         B, L = S_true_enc.shape
+        # Determine the device for tensor operations
         device = S_true_enc.device
 
+        # Encode the input features
         h_V_enc, h_E_enc, E_idx_enc = self.encode(feature_dict)
+        # Initialize output tensors
         log_probs_out = torch.zeros([B_decoder, L, 21], device=device).float()
         logits_out = torch.zeros([B_decoder, L, 21], device=device).float()
         decoding_order_out = torch.zeros([B_decoder, L, L], device=device).float()
 
+        # Iterate through each position of the sequence for decoding
         for idx in range(L):
+            # Clone the encoder output for the current position
             h_V = torch.clone(h_V_enc)
             E_idx = torch.clone(E_idx_enc)
             mask = torch.clone(mask_enc)
             S_true = torch.clone(S_true_enc)
+            # Determine the masking strategy for decoding based on whether to use the sequence
             if not use_sequence:
                 order_mask = torch.zeros(chain_mask_enc.shape[1], device=device).float()
                 order_mask[idx] = 1.0
             else:
                 order_mask = torch.ones(chain_mask_enc.shape[1], device=device).float()
                 order_mask[idx] = 0.0
+            # Determine the decoding order based on the masking strategy and random values
             decoding_order = torch.argsort(
                 (order_mask + 0.0001) * (torch.abs(randn))
             )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+            # Repeat and transform the decoding order for subsequent operations
             E_idx = E_idx.repeat(B_decoder, 1, 1)
             permutation_matrix_reverse = torch.nn.functional.one_hot(
                 decoding_order, num_classes=L
@@ -515,35 +531,43 @@ class ProteinMPNN(torch.nn.Module):
                 permutation_matrix_reverse,
             )
             mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+
+            # Construct forward and backward masking tensors
             mask_1D = mask.view([B, L, 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1.0 - mask_attend)
+
+            # Repeat and prepare other necessary tensors for decoding
             S_true = S_true.repeat(B_decoder, 1)
             h_V = h_V.repeat(B_decoder, 1, 1)
             h_E = h_E_enc.repeat(B_decoder, 1, 1, 1)
             mask = mask.repeat(B_decoder, 1)
 
+            # Encode the true sequence information
             h_S = self.W_s(S_true)
             h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
-            # Build encoder embeddings
+            # Initialize the encoder embedding for the decoding process
             h_EX_encoder = cat_neighbors_nodes(torch.zeros_like(h_S), h_E, E_idx)
             h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
             h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+            # Decode the sequence through multiple layers
             for layer in self.decoder_layers:
-                # Masked positions attend to encoder information, unmasked see.
                 h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
                 h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
                 h_V = layer(h_V, h_ESV, mask)
 
+            # Generate the final prediction logits and log probabilities
             logits = self.W_out(h_V)
             log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
 
+            # Update the output dictionary
             log_probs_out[:, idx, :] = log_probs[:, idx, :]
             logits_out[:, idx, :] = logits[:, idx, :]
             decoding_order_out[:, idx, :] = decoding_order
 
+        # Return the decoding results
         output_dict = {
             "S": S_true,
             "log_probs": log_probs_out,
@@ -552,22 +576,43 @@ class ProteinMPNN(torch.nn.Module):
         }
         return output_dict
 
-    def score(self, feature_dict, use_sequence: bool):
-        B_decoder = feature_dict["batch_size"]
-        S_true = feature_dict["S"]
-        mask = feature_dict["mask"]
-        chain_mask = feature_dict["chain_mask"]
-        randn = feature_dict["randn"]
-        symmetry_list_of_lists = feature_dict["symmetry_residues"]
+    def score(self, feature_dict:MPNN_Feature, use_sequence: bool) -> Dict[str, Union[Any, torch.Tensor]]:
+        """
+        Calculate the scoring function for the features.
+
+        This function primarily deals with the encoding and decoding of molecular structures, using a graph neural network (GNN) model.
+        It supports the use of both predefined sequences and custom sequences. The sequence is used to guide the decoding process of the GNN,
+        to predict the amino acid order of the protein structure.
+
+        Parameters:
+        - feature_dict: MPNN_Feature type object, containing the input features of the model, such as molecule graph information, masks, etc.
+        - use_sequence: Boolean value, indicating whether to use the sequence during decoding.
+        
+        Returns:
+        - output_dict: A dictionary containing the predicted sequence, log probabilities, logits, and decoding order.
+        """
+        # Get the batch size
+        B_decoder = feature_dict.batch_size
+        S_true = feature_dict.S
+
+        # Extract relevant information from feature_dict
+        mask = feature_dict.mask
+        chain_mask = feature_dict.chain_mask
+        randn = feature_dict.randn
+        symmetry_list_of_lists = feature_dict.symmetry_residues
         B, L = S_true.shape
         device = S_true.device
 
+        # Encode the input features
         h_V, h_E, E_idx = self.encode(feature_dict)
 
+        # Update chain_mask and calculate the decoding order
         chain_mask = mask * chain_mask  # update chain_M to include missing regions
         decoding_order = torch.argsort(
             (chain_mask + 0.0001) * (torch.abs(randn))
         )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+
+        # Handle the case without symmetry residues
         if len(symmetry_list_of_lists[0]) == 0 and len(symmetry_list_of_lists) == 1:
             E_idx = E_idx.repeat(B_decoder, 1, 1)
             permutation_matrix_reverse = torch.nn.functional.one_hot(
@@ -584,6 +629,7 @@ class ProteinMPNN(torch.nn.Module):
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1.0 - mask_attend)
         else:
+            # Handle the case with symmetry residues
             new_decoding_order = []
             for t_dec in list(decoding_order[0,].cpu().data.numpy()):
                 if t_dec not in list(itertools.chain(*new_decoding_order)):
@@ -620,11 +666,13 @@ class ProteinMPNN(torch.nn.Module):
             mask_bw = mask_bw.repeat(B_decoder, 1, 1, 1)
             decoding_order = decoding_order.repeat(B_decoder, 1)
 
+        # Repeat relevant information for the decoding process
         S_true = S_true.repeat(B_decoder, 1)
         h_V = h_V.repeat(B_decoder, 1, 1)
         h_E = h_E.repeat(B_decoder, 1, 1, 1)
         mask = mask.repeat(B_decoder, 1)
 
+        # Calculate the initial state of the sequence
         h_S = self.W_s(S_true)
         h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
@@ -633,6 +681,7 @@ class ProteinMPNN(torch.nn.Module):
         h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
         h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+        # Perform decoding, with or without using the sequence
         if not use_sequence:
             for layer in self.decoder_layers:
                 h_V = layer(h_V, h_EXV_encoder_fw, mask)
@@ -643,9 +692,11 @@ class ProteinMPNN(torch.nn.Module):
                 h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
                 h_V = layer(h_V, h_ESV, mask)
 
+        # Generate the final output logits and calculate the log probabilities
         logits = self.W_out(h_V)
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
 
+        # Package the output results
         output_dict = {
             "S": S_true,
             "log_probs": log_probs,
@@ -654,8 +705,29 @@ class ProteinMPNN(torch.nn.Module):
         }
         return output_dict
 
+class ProteinFeaturesAbstract(ABC):
+    @abstractmethod
+    def __init__(self, edge_features, node_features, num_positional_embeddings, num_rbf, top_k, augment_eps):
+        """Initialize the protein features module with specified parameters."""
+        ...
 
-class ProteinFeaturesLigand(torch.nn.Module):
+    @abstractmethod
+    def _dist(self, X, mask, eps=1e-6):
+        """Calculate distance matrix for the given batch of structures."""
+        ...
+
+    @abstractmethod
+    def _rbf(self, D):
+        """Apply radial basis function (RBF) to the distance matrix."""
+        ...
+
+    @abstractmethod
+    def _get_rbf(self, A, B, E_idx):
+        """Compute RBF features between specific atoms across all given proteins in the batch."""
+        ...
+
+
+class ProteinFeaturesLigand(torch.nn.Module,ProteinFeaturesAbstract):
     def __init__(
         self,
         edge_features,
@@ -1318,7 +1390,7 @@ class ProteinFeaturesLigand(torch.nn.Module):
         return V, E, E_idx, Y_nodes, Y_edges, Y_m
 
 
-class ProteinFeatures(torch.nn.Module):
+class ProteinFeatures(torch.nn.Module,ProteinFeaturesAbstract):
     def __init__(
         self,
         edge_features,
@@ -1436,7 +1508,7 @@ class ProteinFeatures(torch.nn.Module):
         return E, E_idx
 
 
-class ProteinFeaturesMembrane(torch.nn.Module):
+class ProteinFeaturesMembrane(torch.nn.Module,ProteinFeaturesAbstract):
     def __init__(
         self,
         edge_features,

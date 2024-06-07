@@ -117,12 +117,15 @@ output:
   save_stats: True
   zero_indexed: False
   fasta_seq_separation: ":"
+  save_bb_pdb: True
+  save_fasta: True
 
 
 scorer:
   use_sequence: True
   autoregressive_score: False
   single_aa_score: True
+  customized_seq: ""
 
 packer:
   # set true to enable repack

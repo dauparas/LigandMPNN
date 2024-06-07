@@ -1,9 +1,12 @@
 from __future__ import print_function
+from typing import Any, Dict, Union
 
 import numpy as np
 import torch
 import torch.utils
 from prody import *
+
+from .dataclass_utils import MPNN_Feature
 
 confProDy(verbosity="none")
 
@@ -218,6 +221,18 @@ def get_seq_rec(S: torch.Tensor, S_pred: torch.Tensor, mask: torch.Tensor):
 
 def get_score(S: torch.Tensor, log_probs: torch.Tensor, mask: torch.Tensor):
     """
+    Calculates the average loss and loss per residue for a given predicted sequence, true sequence, and mask.
+
+    Parameters:
+    S: torch.Tensor, the true sequence, where each element represents the label of the residue.
+    log_probs: torch.Tensor, the log probabilities of the predicted sequence, where each element represents the log probability of a residue belonging to a certain class.
+    mask: torch.Tensor, the mask tensor, used to specify the regions over which to calculate the average loss.
+
+    Returns:
+    average_loss: torch.Tensor, the average loss of the masked region.
+    loss_per_residue: torch.Tensor, the loss per residue.
+    """
+    """
     S : true sequence shape=[batch, length]
     log_probs : predicted sequence shape=[batch, length]
     mask : mask to compute average over the region shape=[batch, length]
@@ -225,8 +240,11 @@ def get_score(S: torch.Tensor, log_probs: torch.Tensor, mask: torch.Tensor):
     average_loss : averaged categorical cross entropy (CCE) [batch]
     loss_per_resdue : per position CCE [batch, length]
     """
+    # Convert the true sequence S into a one-hot encoding tensor
     S_one_hot = torch.nn.functional.one_hot(S, 21)
+    # Calculate the loss per residue by multiplying the one-hot encoded true sequence with the log probabilities of the predicted sequence, then taking the negative sum
     loss_per_residue = -(S_one_hot * log_probs).sum(-1)  # [B, L]
+    # Calculate the average loss by summing the loss per residue masked by mask, then dividing by the total number of masked residues (to prevent division by 0, add a very small number 1e-8)
     average_loss = torch.sum(loss_per_residue * mask, dim=-1) / (
         torch.sum(mask, dim=-1) + 1e-8
     )
@@ -924,13 +942,14 @@ def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
 
 
 def featurize(
-    input_dict,
+    input_dict: dict[str, Union[str, torch.Tensor]],
     cutoff_for_score=8.0,
     use_atom_context=True,
     number_of_ligand_atoms=16,
     model_type="protein_mpnn",
-):
-    output_dict = {}
+) -> MPNN_Feature:
+    mpnn_feature=MPNN_Feature(
+        model_type=model_type,)
     if model_type == "ligand_mpnn":
         mask = input_dict["mask"]
         Y = input_dict["Y"]
@@ -947,19 +966,19 @@ def featurize(
             CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms
         )
         mask_XY = (D_XY < cutoff_for_score) * mask * Y_m[:, 0]
-        output_dict["mask_XY"] = mask_XY[None,]
-        if "side_chain_mask" in list(input_dict):
-            output_dict["side_chain_mask"] = input_dict["side_chain_mask"][None,]
-        output_dict["Y"] = Y[None,]
-        output_dict["Y_t"] = Y_t[None,]
-        output_dict["Y_m"] = Y_m[None,]
+        mpnn_feature.mask_XY= mask_XY[None,]
+        if input_dict.get("side_chain_mask",None):
+            mpnn_feature.side_chain_mask= input_dict["side_chain_mask"][None,]
+        mpnn_feature.Y = Y[None,]
+        mpnn_feature.Y_t= Y_t[None,]
+        mpnn_feature.Y_m= Y_m[None,]
         if not use_atom_context:
-            output_dict["Y_m"] = 0.0 * output_dict["Y_m"]
+            mpnn_feature.Y_m= 0.0 * mpnn_feature.Y_m
     elif (
         model_type == "per_residue_label_membrane_mpnn"
         or model_type == "global_label_membrane_mpnn"
     ):
-        output_dict["membrane_per_residue_labels"] = input_dict[
+        mpnn_feature.membrane_per_residue_labels= input_dict[
             "membrane_per_residue_labels"
         ][
             None,
@@ -974,17 +993,41 @@ def featurize(
         R_idx_list.append(R_idx + count)
         R_idx_prev = R_idx
     R_idx_renumbered = torch.tensor(R_idx_list, device=R_idx.device)
-    output_dict["R_idx"] = R_idx_renumbered[None,]
-    output_dict["R_idx_original"] = input_dict["R_idx"][None,]
-    output_dict["chain_labels"] = input_dict["chain_labels"][None,]
-    output_dict["S"] = input_dict["S"][None,]
-    output_dict["chain_mask"] = input_dict["chain_mask"][None,]
-    output_dict["mask"] = input_dict["mask"][None,]
+    mpnn_feature.R_idx= R_idx_renumbered[None,]
+    mpnn_feature.R_idx_original= input_dict["R_idx"][None,]
+    mpnn_feature.chain_labels= input_dict["chain_labels"][None,]
+    mpnn_feature.S= input_dict["S"][None,]
+    mpnn_feature.chain_mask= input_dict["chain_mask"][None,]
+    mpnn_feature.mask= input_dict["mask"][None,]
 
-    output_dict["X"] = input_dict["X"][None,]
+    mpnn_feature.X= input_dict["X"][None,]
 
     if "xyz_37" in list(input_dict):
-        output_dict["xyz_37"] = input_dict["xyz_37"][None,]
-        output_dict["xyz_37_m"] = input_dict["xyz_37_m"][None,]
+        mpnn_feature.xyz_37= input_dict["xyz_37"][None,]
+        mpnn_feature.xyz_37_m= input_dict["xyz_37_m"][None,]
 
-    return output_dict
+    return mpnn_feature
+
+
+def tensor_to_sequence(tensor:torch.Tensor)-> str:
+    return ''.join(restype_int_to_str[AA] for AA in tensor.cpu().numpy())
+    
+
+def sequence_to_tensor(sequence: str) -> torch.Tensor:
+    # restype_str_to_int is the inverse dictionary of restype_int_to_str
+    tensor = torch.tensor([restype_str_to_int[AA] for AA in sequence])
+    tensor = tensor.unsqueeze(0)
+    return tensor
+
+def inspect_tensors(out_dict: Dict[str,Union[Any, torch.Tensor]]):
+    print(f'{out_dict=}')
+    for i in out_dict:
+        j=out_dict[i]
+        if isinstance(j, torch.Tensor):
+            if (_l:=len(j))==1:
+                _j=j[0]
+                print(f'{i}: L={_l}\tS={j.shape} S[0]={_j.shape}')
+            else:
+                print(f'{i}: L={_l}\tS={j.shape}')
+        else:
+            print(f'{i}: {j}')
