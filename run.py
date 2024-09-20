@@ -64,7 +64,13 @@ def main(args) -> None:
     else:
         print("Choose one of the available models")
         sys.exit()
+    # If the checkpoint isn't in the local directory, try to load it relative to the script directory.
+    if not os.path.exists(checkpoint_path):
+        alt_path = os.path.join( os.path.dirname(os.path.abspath(__file__)), checkpoint_path )
+        if os.path.exists(alt_path):
+            checkpoint_path = alt_path
     checkpoint = torch.load(checkpoint_path, map_location=device)
+
     if args.model_type == "ligand_mpnn":
         atom_context_num = checkpoint["atom_context_num"]
         ligand_mpnn_use_side_chain_context = args.ligand_mpnn_use_side_chain_context
