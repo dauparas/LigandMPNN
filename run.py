@@ -126,6 +126,7 @@ def main(args) -> None:
     if args.fixed_residues_multi:
         with open(args.fixed_residues_multi, "r") as fh:
             fixed_residues_multi = json.load(fh)
+            fixed_residues_multi = {key:value.split() for key,value in fixed_residues_multi.items()}
     else:
         fixed_residues = [item for item in args.fixed_residues.split()]
         fixed_residues_multi = {}
@@ -135,6 +136,7 @@ def main(args) -> None:
     if args.redesigned_residues_multi:
         with open(args.redesigned_residues_multi, "r") as fh:
             redesigned_residues_multi = json.load(fh)
+            redesigned_residues_multi = {key:value.split() for key,value in redesigned_residues_multi.items()}
     else:
         redesigned_residues = [item for item in args.redesigned_residues.split()]
         redesigned_residues_multi = {}
