@@ -341,7 +341,7 @@ def main(args) -> None:
         if args.homo_oligomer:
             if args.verbose:
                 print("Designing HOMO-OLIGOMER")
-            chain_letters_set = list(set(chain_letters_list))
+            chain_letters_set = list(set(chains_to_design_list))
             reference_chain = chain_letters_set[0]
             lc = len(reference_chain)
             residue_indices = [
