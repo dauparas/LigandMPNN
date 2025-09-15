@@ -7,14 +7,14 @@ import sys
 import numpy as np
 import torch
 
-from data_utils import (
+from ligandmpnn.data import (
     alphabet,
     element_dict_rev,
     featurize,
     parse_PDB,
     restype_int_to_str,
 )
-from model_utils import ProteinMPNN
+from src.ligandmpnn.models import ProteinMPNN
 
 
 def main(args) -> None:
