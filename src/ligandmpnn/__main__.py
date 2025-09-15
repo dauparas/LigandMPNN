@@ -1,15 +1,17 @@
 import argparse
+import asyncio
 import copy
 import json
 import os.path
 import random
 import sys
+from pathlib import Path
 
 import numpy as np
 import torch
 from prody import writePDB
 
-from data_utils import (
+from ligandmpnn.data import (
     alphabet,
     element_dict_rev,
     featurize,
@@ -21,18 +23,23 @@ from data_utils import (
     restype_str_to_int,
     write_full_PDB,
 )
-from model_utils import ProteinMPNN
-from sc_utils import Packer, pack_side_chains
+from ligandmpnn.models import ProteinMPNN
+from ligandmpnn.params import fetch_original_params
+from ligandmpnn.paths import REPO_DIR, MODEL_PARAMS_DIR
+from ligandmpnn.sidechain import Packer, pack_side_chains
 
 
 def main(args) -> None:
     """
     Inference function
     """
+    asyncio.run(fetch_original_params())
+
     if args.seed:
         seed = args.seed
     else:
         seed = int(np.random.randint(0, high=99999, size=1, dtype=int)[0])
+
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -690,38 +697,38 @@ if __name__ == "__main__":
     # soluble_mpnn - ProteinMPNN trained only on soluble PDB ids
     argparser.add_argument(
         "--checkpoint_protein_mpnn",
-        type=str,
-        default="./model_params/proteinmpnn_v_48_020.pt",
+        type=Path,
+        default=MODEL_PARAMS_DIR / "proteinmpnn_v_48_020.pt",
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_ligand_mpnn",
-        type=str,
-        default="./model_params/ligandmpnn_v_32_010_25.pt",
+        type=Path,
+        default=MODEL_PARAMS_DIR / "ligandmpnn_v_32_010_25.pt",
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_per_residue_label_membrane_mpnn",
-        type=str,
-        default="./model_params/per_residue_label_membrane_mpnn_v_48_020.pt",
+        type=Path,
+        default=MODEL_PARAMS_DIR / "per_residue_label_membrane_mpnn_v_48_020.pt",
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_global_label_membrane_mpnn",
-        type=str,
-        default="./model_params/global_label_membrane_mpnn_v_48_020.pt",
+        type=Path,
+        default=MODEL_PARAMS_DIR / "global_label_membrane_mpnn_v_48_020.pt",
         help="Path to model weights.",
     )
     argparser.add_argument(
         "--checkpoint_soluble_mpnn",
-        type=str,
-        default="./model_params/solublempnn_v_48_020.pt",
+        type=Path,
+        default=MODEL_PARAMS_DIR / "solublempnn_v_48_020.pt",
         help="Path to model weights.",
     )
 
     argparser.add_argument(
         "--fasta_seq_separation",
-        type=str,
+        type=Path,
         default=":",
         help="Symbol to use between sequences from different chains",
     )
@@ -824,6 +831,7 @@ if __name__ == "__main__":
         "--out_folder",
         type=str,
         help="Path to a folder to output sequences, e.g. /home/out/",
+        default=str(REPO_DIR / "outputs"),
     )
     argparser.add_argument(
         "--file_ending", type=str, default="", help="adding_string_to_the_end"
@@ -931,7 +939,7 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--checkpoint_path_sc",
         type=str,
-        default="./model_params/ligandmpnn_sc_v_32_002_16.pt",
+        default=MODEL_PARAMS_DIR / "ligandmpnn_sc_v_32_002_16.pt",
         help="Path to model weights.",
     )
 
