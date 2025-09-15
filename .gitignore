@@ -130,3 +130,4 @@ dmypy.json
 .pyre/
 
 .idea/
+src/ligandmpnn/version.py

@@ -1,21 +1,32 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64.0.0", "setuptools_scm>=6.2.0"]
+
 [project]
 name = "ligandmpnn"
-version = "0.1.0"
-description = "Add your description here"
+description = "LigandMPNN is a deep-learning-based protein sequence design method that can explicitly model all nonprotein components of biomolecular systems"
 readme = "README.md"
 requires-python = ">=3.11"
+dynamic = ["version"]
 dependencies = [
     "numpy~=1.23.5",
     "biopython~=1.79",
     "prody~=2.4.1",
     "torch~=2.2.2",
     "ml-collections~=0.1.1",
-    "dm-tree~=0.1.8"
+    "dm-tree~=0.1.8",
+    "aiohttp[speedups]>=3.12.15",
+    "aiodns>=3.5.0",
+    "aiofiles>=24.1.0",
+    "tqdm>=4.67.1",
 ]
 
 [project.urls]
 repository = 'https://github.com/xymeai/ligandmpnn.git'
 issue-tracker = 'https://github.com/xymeai/ligandmpnn/issues'
+
+[project.scripts]
+ligandmpnn = "ligandmpnn:__main__"
 
 [dependency-groups]
 dev = [
@@ -71,3 +82,19 @@ ignore = ["S101"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.setuptools_scm]
+local_scheme = "dirty-tag"
+write_to = "src/ligandmpnn/version.py"
+
+
+[[tool.uv.index]]
+name = "xyme-pypi-dev"
+url = "https://pypi.dev.xyme.cloud/"
+publish-url = "https://pypi.dev.xyme.cloud/"
+
+
+[[tool.uv.index]]
+name = "xyme-pypi"
+url = "https://pypi.prd.xyme.cloud/"
+publish-url = "https://pypi.prd.xyme.cloud/"
