@@ -1,4 +1,0 @@
->1BC8, T=0.1, seed=111, num_res=86, num_ligand_res=86, use_ligand_context=True, ligand_cutoff_distance=8.0, batch_size=1, number_of_batches=1, model_path=./model_params/proteinmpnn_v_48_020.pt
-MDSAITLWQFLLQLLQKPQNKHMICWTSNDGQFKLLQAEEVARLWGIRKNKPNMNYDKLSRALRYYYVKNIIKKVNGQKFVYKFVSYPEILNM
->1BC8, id=1, T=0.1, seed=111, overall_confidence=0.4057, ligand_confidence=0.4057, seq_rec=0.5116
-MDSAISLHEFLLKLLSKPEYKHIIEWTSDNGEFKLKDPEAVAKLWGEEKGEPDMNWKKMEKELKKYEKKKIIEKVKGKPNHYKFVNYPEILFP
