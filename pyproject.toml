@@ -12,13 +12,15 @@ dependencies = [
     "numpy~=1.23.5",
     "biopython~=1.79",
     "prody~=2.4.1",
-    "torch~=2.2.2",
+    "torch>=2.5.1",
     "ml-collections~=0.1.1",
     "dm-tree~=0.1.8",
     "aiohttp[speedups]>=3.12.15",
     "aiodns>=3.5.0",
     "aiofiles>=24.1.0",
     "tqdm>=4.67.1",
+    "loguru>=0.7.3",
+    "pytorch-lightning>=2.5.5",
 ]
 
 [project.urls]
