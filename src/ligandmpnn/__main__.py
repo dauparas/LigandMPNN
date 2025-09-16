@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from prody import writePDB
+from loguru import logger
 
 from ligandmpnn.data import (
     alphabet,
@@ -70,7 +71,7 @@ def main(args) -> None:
     elif args.model_type == "soluble_mpnn":
         checkpoint_path = args.checkpoint_soluble_mpnn
     else:
-        print("Choose one of the available models")
+        logger.info("Choose one of the available models")
         sys.exit()
     checkpoint = torch.load(checkpoint_path, map_location=device)
     if args.model_type == "ligand_mpnn":
@@ -195,8 +196,14 @@ def main(args) -> None:
 
     # loop over PDB paths
     for pdb in pdb_paths:
+
+        if not os.path.exists(pdb):
+            logger.error(f"PDB path '{pdb}' does not exist, please check the path")
+            return
+
         if args.verbose:
-            print("Designing protein from this path:", pdb)
+            logger.info("Designing protein from this path:", pdb)
+
         fixed_residues = fixed_residues_multi[pdb]
         redesigned_residues = redesigned_residues_multi[pdb]
         parse_all_atoms_flag = args.ligand_mpnn_use_side_chain_context or (
@@ -317,8 +324,16 @@ def main(args) -> None:
                 for item in range(protein_dict["chain_mask"].shape[0])
                 if protein_dict["chain_mask"][item] == 0
             ]
-            print("These residues will be redesigned: ", PDB_residues_to_be_redesigned)
-            print("These residues will be fixed: ", PDB_residues_to_be_fixed)
+
+            if PDB_residues_to_be_redesigned:
+                logger.info(f"These residues will be redesigned: {PDB_residues_to_be_redesigned}")
+            else:
+                logger.info("No residues will be redesigned")
+
+            if PDB_residues_to_be_fixed:
+                logger.info("These residues will be fixed: ", PDB_residues_to_be_fixed)
+            else:
+                logger.info("No residues will be fixed")
 
         # specify which residues are linked
         if args.symmetry_residues:
@@ -345,7 +360,7 @@ def main(args) -> None:
 
         if args.homo_oligomer:
             if args.verbose:
-                print("Designing HOMO-OLIGOMER")
+                logger.info("Designing HOMO-OLIGOMER")
             chain_letters_set = list(set(chain_letters_list))
             reference_chain = chain_letters_set[0]
             lc = len(reference_chain)
@@ -383,18 +398,18 @@ def main(args) -> None:
                     atom_mask = list(protein_dict["Y_m"].cpu().numpy())
                     number_of_atoms_parsed = np.sum(atom_mask)
                 else:
-                    print("No ligand atoms parsed")
+                    logger.info("No ligand atoms parsed")
                     number_of_atoms_parsed = 0
                     atom_types = ""
                     atom_coords = []
                 if number_of_atoms_parsed == 0:
-                    print("No ligand atoms parsed")
+                    logger.info("No ligand atoms parsed")
                 elif args.model_type == "ligand_mpnn":
-                    print(
+                    logger.info(
                         f"The number of ligand atoms parsed is equal to: {number_of_atoms_parsed}"
                     )
                     for i, atom_type in enumerate(atom_types):
-                        print(
+                        logger.info(
                             f"Type: {element_dict_rev[atom_type]}, Coords {atom_coords[i]}, Mask {atom_mask[i]}"
                         )
             feature_dict = featurize(
@@ -470,9 +485,11 @@ def main(args) -> None:
             )
             seq_np = np.array(list(native_seq))
             seq_out_str = []
+
             for mask in protein_dict["mask_c"]:
                 seq_out_str += list(seq_np[mask.cpu().numpy()])
                 seq_out_str += [args.fasta_seq_separation]
+
             seq_out_str = "".join(seq_out_str)[:-1]
 
             output_fasta = base_folder + "/seqs/" + name + args.file_ending + ".fa"
@@ -495,7 +512,7 @@ def main(args) -> None:
 
             if args.pack_side_chains:
                 if args.verbose:
-                    print("Packing side chains...")
+                    logger.info("Packing side chains...")
                 feature_dict_ = featurize(
                     protein_dict,
                     cutoff_for_score=8.0,
@@ -728,7 +745,7 @@ if __name__ == "__main__":
 
     argparser.add_argument(
         "--fasta_seq_separation",
-        type=Path,
+        type=str,
         default=":",
         help="Symbol to use between sequences from different chains",
     )
