@@ -20,7 +20,7 @@ import os
 import subprocess
 from typing import Sequence
 
-from openfold.data.tools import utils
+from ligandmpnn.openfold.data.tools import utils
 
 
 class HHSearch:

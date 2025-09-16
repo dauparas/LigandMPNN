@@ -12,15 +12,15 @@ from src.ligandmpnn.models import (
     gather_edges,
     gather_nodes,
 )
-from openfold.data.data_transforms import atom37_to_torsion_angles, make_atom14_masks
-from openfold.np.residue_constants import (
+from ligandmpnn.openfold.data.data_transforms import atom37_to_torsion_angles, make_atom14_masks
+from ligandmpnn.openfold.np.residue_constants import (
     restype_atom14_mask,
     restype_atom14_rigid_group_positions,
     restype_atom14_to_rigid_group,
     restype_rigid_group_default_frame,
 )
-from openfold.utils import feats
-from openfold.utils.rigid_utils import Rigid
+from ligandmpnn.openfold.utils import feats
+from ligandmpnn.openfold.utils.rigid_utils import Rigid
 
 torch_pi = torch.tensor(np.pi, device="cpu")
 

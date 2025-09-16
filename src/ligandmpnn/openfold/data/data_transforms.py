@@ -20,10 +20,10 @@ from operator import add
 import numpy as np
 import torch
 
-from openfold.config import NUM_RES, NUM_EXTRA_SEQ, NUM_TEMPLATES, NUM_MSA_SEQ
-from openfold.np import residue_constants as rc
-from openfold.utils.rigid_utils import Rotation, Rigid
-from openfold.utils.tensor_utils import (
+from ligandmpnn.openfold.config import NUM_RES, NUM_EXTRA_SEQ, NUM_TEMPLATES, NUM_MSA_SEQ
+from ligandmpnn.openfold.np import residue_constants as rc
+from ligandmpnn.openfold.utils.rigid_utils import Rotation, Rigid
+from ligandmpnn.openfold.utils.tensor_utils import (
     tree_map,
     tensor_tree_map,
     batched_gather,

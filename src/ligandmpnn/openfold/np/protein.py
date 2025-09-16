@@ -20,7 +20,7 @@ from typing import Any, Sequence, Mapping, Optional
 import re
 import string
 
-from openfold.np import residue_constants
+from ligandmpnn.openfold.np import residue_constants
 from Bio import PDB
 import numpy as np
 

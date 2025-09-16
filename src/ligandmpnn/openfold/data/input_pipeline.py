@@ -17,7 +17,7 @@ from functools import partial
 
 import torch
 
-from openfold.data import data_transforms
+from ligandmpnn.openfold.data import data_transforms
 
 
 def nonensembled_transform_fns(common_cfg, mode_cfg):

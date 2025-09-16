@@ -13,21 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-
-import numpy as np
 import torch
 import torch.nn as nn
-from typing import Dict
 
-from openfold.np import protein
-import openfold.np.residue_constants as rc
-from openfold.utils.rigid_utils import Rotation, Rigid
-from openfold.utils.tensor_utils import (
+import ligandmpnn.openfold.np.residue_constants as rc
+from ligandmpnn.openfold.utils.rigid_utils import Rotation, Rigid
+from ligandmpnn.openfold.utils.tensor_utils import (
     batched_gather,
-    one_hot,
-    tree_map,
-    tensor_tree_map,
 )
 
 
@@ -90,10 +82,10 @@ def build_template_angle_feat(template_feats):
 
 
 def build_template_pair_feat(
-    batch, 
-    min_bin, max_bin, no_bins, 
-    use_unit_vector=False, 
-    eps=1e-20, inf=1e8
+        batch,
+        min_bin, max_bin, no_bins,
+        use_unit_vector=False,
+        eps=1e-20, inf=1e8
 ):
     template_mask = batch["template_pseudo_beta_mask"]
     template_mask_2d = template_mask[..., None] * template_mask[..., None, :]
@@ -140,16 +132,16 @@ def build_template_pair_feat(
 
     t_aa_masks = batch["template_all_atom_mask"]
     template_mask = (
-        t_aa_masks[..., n] * t_aa_masks[..., ca] * t_aa_masks[..., c]
+            t_aa_masks[..., n] * t_aa_masks[..., ca] * t_aa_masks[..., c]
     )
     template_mask_2d = template_mask[..., None] * template_mask[..., None, :]
 
     inv_distance_scalar = inv_distance_scalar * template_mask_2d
     unit_vector = rigid_vec * inv_distance_scalar[..., None]
-    
-    if(not use_unit_vector):
+
+    if (not use_unit_vector):
         unit_vector = unit_vector * 0.
-    
+
     to_concat.extend(torch.unbind(unit_vector[..., None, :], dim=-1))
     to_concat.append(template_mask_2d[..., None])
 
@@ -170,10 +162,10 @@ def build_extra_msa_feat(batch):
 
 
 def torsion_angles_to_frames(
-    r: Rigid,
-    alpha: torch.Tensor,
-    aatype: torch.Tensor,
-    rrgdf: torch.Tensor,
+        r: Rigid,
+        alpha: torch.Tensor,
+        aatype: torch.Tensor,
+        rrgdf: torch.Tensor,
 ):
     # [*, N, 8, 4, 4]
     default_4x4 = rrgdf[aatype, ...]
@@ -236,12 +228,12 @@ def torsion_angles_to_frames(
 
 
 def frames_and_literature_positions_to_atom14_pos(
-    r: Rigid,
-    aatype: torch.Tensor,
-    default_frames,
-    group_idx,
-    atom_mask,
-    lit_positions,
+        r: Rigid,
+        aatype: torch.Tensor,
+        default_frames,
+        group_idx,
+        atom_mask,
+        lit_positions,
 ):
     # [*, N, 14, 4, 4]
     default_4x4 = default_frames[aatype, ...]

@@ -23,7 +23,7 @@ import subprocess
 from typing import Any, Callable, Mapping, Optional, Sequence
 from urllib import request
 
-from openfold.data.tools import utils
+from ligandmpnn.openfold.data.tools import utils
 
 
 class Jackhmmer:
