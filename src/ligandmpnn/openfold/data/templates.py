@@ -231,9 +231,7 @@ def _assess_hhsearch_hit(
 
     if _is_after_cutoff(hit_pdb_code, release_dates, release_date_cutoff):
         date = release_dates[hit_pdb_code.upper()]
-        raise DateError(
-            f"Date ({date}) > max template date " f"({release_date_cutoff})."
-        )
+        raise DateError(f"Date ({date}) > max template date ({release_date_cutoff}).")
 
     if query_pdb_code is not None:
         if query_pdb_code.lower() == hit_pdb_code.lower():
