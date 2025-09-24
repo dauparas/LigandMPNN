@@ -21,6 +21,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "loguru>=0.7.3",
     "pytorch-lightning>=2.5.5",
+    "boto3>=1.40.35",
+    "joblib>=1.5.2",
 ]
 
 [project.urls]
