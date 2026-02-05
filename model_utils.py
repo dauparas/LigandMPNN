@@ -499,7 +499,7 @@ class ProteinMPNN(torch.nn.Module):
             E_idx = torch.clone(E_idx_enc)
             mask = torch.clone(mask_enc)
             S_true = torch.clone(S_true_enc)
-            if not use_sequence:
+            if use_sequence:
                 order_mask = torch.zeros(chain_mask_enc.shape[1], device=device).float()
                 order_mask[idx] = 1.
             else:
