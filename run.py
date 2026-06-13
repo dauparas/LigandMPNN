@@ -64,7 +64,7 @@ def main(args) -> None:
     else:
         print("Choose one of the available models")
         sys.exit()
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     if args.model_type == "ligand_mpnn":
         atom_context_num = checkpoint["atom_context_num"]
         ligand_mpnn_use_side_chain_context = args.ligand_mpnn_use_side_chain_context
@@ -112,7 +112,7 @@ def main(args) -> None:
             num_mix=3,
         )
 
-        checkpoint_sc = torch.load(args.checkpoint_path_sc, map_location=device)
+        checkpoint_sc = torch.load(args.checkpoint_path_sc, map_location=device, weights_only=False)
         model_sc.load_state_dict(checkpoint_sc["model_state_dict"])
         model_sc.to(device)
         model_sc.eval()
