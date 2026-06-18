@@ -28,7 +28,7 @@ def main(args) -> None:
     """
     Inference function
     """
-    if args.seed:
+    if args.seed is not None:
         seed = args.seed
     else:
         seed = int(np.random.randint(0, high=99999, size=1, dtype=int)[0])
@@ -839,7 +839,7 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--seed",
         type=int,
-        default=0,
+        default=None,
         help="Set seed for torch, numpy, and python random.",
     )
     argparser.add_argument(

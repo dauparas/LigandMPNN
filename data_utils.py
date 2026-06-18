@@ -199,8 +199,9 @@ element_list = [
     "Uuo",
 ]
 element_list = [item.upper() for item in element_list]
-# element_dict = dict(zip(element_list, range(1,len(element_list))))
+element_dict = dict(zip(element_list, range(1, len(element_list))))
 element_dict_rev = dict(zip(range(1, len(element_list)), element_list))
+restype_3to1 = {v: k for k, v in restype_1to3.items()}
 
 
 def get_seq_rec(S: torch.Tensor, S_pred: torch.Tensor, mask: torch.Tensor):
@@ -505,7 +506,7 @@ def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
     if atom_atoms != None:
         for i in range(len(atom_resnums)):
             code = atom_chain_ids[i] + "_" + str(atom_resnums[i]) + "_" + atom_icodes[i]
-            if code in list(CA_dict):
+            if code in CA_dict:
                 atom_coords_[CA_dict[code], :] = atom_coords[i]
                 atom_coords_m[CA_dict[code]] = 1
     return atom_coords_, atom_coords_m
@@ -525,174 +526,6 @@ def parse_PDB(
     parse_all_atoms: if False parse only N,CA,C,O otherwise all 37 atoms
     parse_atoms_with_zero_occupancy: if True atoms with zero occupancy will be parsed
     """
-    element_list = [
-        "H",
-        "He",
-        "Li",
-        "Be",
-        "B",
-        "C",
-        "N",
-        "O",
-        "F",
-        "Ne",
-        "Na",
-        "Mg",
-        "Al",
-        "Si",
-        "P",
-        "S",
-        "Cl",
-        "Ar",
-        "K",
-        "Ca",
-        "Sc",
-        "Ti",
-        "V",
-        "Cr",
-        "Mn",
-        "Fe",
-        "Co",
-        "Ni",
-        "Cu",
-        "Zn",
-        "Ga",
-        "Ge",
-        "As",
-        "Se",
-        "Br",
-        "Kr",
-        "Rb",
-        "Sr",
-        "Y",
-        "Zr",
-        "Nb",
-        "Mb",
-        "Tc",
-        "Ru",
-        "Rh",
-        "Pd",
-        "Ag",
-        "Cd",
-        "In",
-        "Sn",
-        "Sb",
-        "Te",
-        "I",
-        "Xe",
-        "Cs",
-        "Ba",
-        "La",
-        "Ce",
-        "Pr",
-        "Nd",
-        "Pm",
-        "Sm",
-        "Eu",
-        "Gd",
-        "Tb",
-        "Dy",
-        "Ho",
-        "Er",
-        "Tm",
-        "Yb",
-        "Lu",
-        "Hf",
-        "Ta",
-        "W",
-        "Re",
-        "Os",
-        "Ir",
-        "Pt",
-        "Au",
-        "Hg",
-        "Tl",
-        "Pb",
-        "Bi",
-        "Po",
-        "At",
-        "Rn",
-        "Fr",
-        "Ra",
-        "Ac",
-        "Th",
-        "Pa",
-        "U",
-        "Np",
-        "Pu",
-        "Am",
-        "Cm",
-        "Bk",
-        "Cf",
-        "Es",
-        "Fm",
-        "Md",
-        "No",
-        "Lr",
-        "Rf",
-        "Db",
-        "Sg",
-        "Bh",
-        "Hs",
-        "Mt",
-        "Ds",
-        "Rg",
-        "Cn",
-        "Uut",
-        "Fl",
-        "Uup",
-        "Lv",
-        "Uus",
-        "Uuo",
-    ]
-    element_list = [item.upper() for item in element_list]
-    element_dict = dict(zip(element_list, range(1, len(element_list))))
-    restype_3to1 = {
-        "ALA": "A",
-        "ARG": "R",
-        "ASN": "N",
-        "ASP": "D",
-        "CYS": "C",
-        "GLN": "Q",
-        "GLU": "E",
-        "GLY": "G",
-        "HIS": "H",
-        "ILE": "I",
-        "LEU": "L",
-        "LYS": "K",
-        "MET": "M",
-        "PHE": "F",
-        "PRO": "P",
-        "SER": "S",
-        "THR": "T",
-        "TRP": "W",
-        "TYR": "Y",
-        "VAL": "V",
-    }
-    restype_STRtoINT = {
-        "A": 0,
-        "C": 1,
-        "D": 2,
-        "E": 3,
-        "F": 4,
-        "G": 5,
-        "H": 6,
-        "I": 7,
-        "K": 8,
-        "L": 9,
-        "M": 10,
-        "N": 11,
-        "P": 12,
-        "Q": 13,
-        "R": 14,
-        "S": 15,
-        "T": 16,
-        "V": 17,
-        "W": 18,
-        "Y": 19,
-        "X": 20,
-    }
-
     atom_order = {
         "N": 0,
         "CA": 1,
@@ -826,8 +659,8 @@ def parse_PDB(
     chain_labels = np.array(CA_atoms.getChindices(), dtype=np.int32)
     R_idx = np.array(CA_resnums, dtype=np.int32)
     S = CA_atoms.getResnames()
-    S = [restype_3to1[AA] if AA in list(restype_3to1) else "X" for AA in list(S)]
-    S = np.array([restype_STRtoINT[AA] for AA in list(S)], np.int32)
+    S = [restype_3to1[AA] if AA in restype_3to1 else "X" for AA in list(S)]
+    S = np.array([restype_str_to_int[AA] for AA in list(S)], np.int32)
     X = np.concatenate([N[:, None], CA[:, None], C[:, None], O[:, None]], 1)
 
     try:
@@ -845,7 +678,7 @@ def parse_PDB(
         Y = Y[Y_m, :]
         Y_t = Y_t[Y_m]
         Y_m = Y_m[Y_m]
-    except:
+    except Exception:
         Y = np.zeros([1, 3], np.float32)
         Y_t = np.zeros([1], np.int32)
         Y_m = np.zeros([1], np.int32)

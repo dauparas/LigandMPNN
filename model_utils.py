@@ -220,17 +220,15 @@ class ProteinMPNN(torch.nn.Module):
             (chain_mask + 0.0001) * (torch.abs(randn))
         )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
         if len(symmetry_list_of_lists[0]) == 0 and len(symmetry_list_of_lists) == 1:
+            # rank[b, pos] = decoding step at which position pos is decoded
+            rank = torch.argsort(decoding_order, dim=1)  # [B, L]
             E_idx = E_idx.repeat(B_decoder, 1, 1)
-            permutation_matrix_reverse = torch.nn.functional.one_hot(
-                decoding_order, num_classes=L
-            ).float()
-            order_mask_backward = torch.einsum(
-                "ij, biq, bjp->bqp",
-                (1 - torch.triu(torch.ones(L, L, device=device))),
-                permutation_matrix_reverse,
-                permutation_matrix_reverse,
-            )
-            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            rank_expanded = rank.expand(B_decoder, L)
+            rank_nbrs = gather_nodes(
+                rank_expanded.unsqueeze(-1).float(), E_idx
+            ).squeeze(-1)  # [B_decoder, L, K]
+            # neighbour j is causal w.r.t. i iff it was decoded before i
+            mask_attend = (rank_nbrs < rank_expanded.float().unsqueeze(-1)).float().unsqueeze(-1)
             mask_1D = mask.view([B, L, 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1.0 - mask_attend)
@@ -368,16 +366,11 @@ class ProteinMPNN(torch.nn.Module):
                 list(itertools.chain(*new_decoding_order)), device=device
             )[None,].repeat(B, 1)
 
-            permutation_matrix_reverse = torch.nn.functional.one_hot(
-                decoding_order, num_classes=L
-            ).float()
-            order_mask_backward = torch.einsum(
-                "ij, biq, bjp->bqp",
-                (1 - torch.triu(torch.ones(L, L, device=device))),
-                permutation_matrix_reverse,
-                permutation_matrix_reverse,
-            )
-            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            rank = torch.argsort(decoding_order, dim=1)  # [B, L]
+            rank_nbrs = gather_nodes(
+                rank.float().unsqueeze(-1), E_idx
+            ).squeeze(-1)  # [B, L, K]
+            mask_attend = (rank_nbrs < rank.float().unsqueeze(-1)).float().unsqueeze(-1)
             mask_1D = mask.view([B, L, 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1.0 - mask_attend)
@@ -412,10 +405,11 @@ class ProteinMPNN(torch.nn.Module):
 
             for t_list in new_decoding_order:
                 total_logits = 0.0
+                total_bias = torch.zeros_like(bias[:, 0])  # [B, 21]
                 for t in t_list:
                     chain_mask_t = chain_mask[:, t]  # [B]
                     mask_t = mask[:, t]  # [B]
-                    bias_t = bias[:, t]  # [B, 21]
+                    total_bias = total_bias + symmetry_weights[t] * bias[:, t]
 
                     E_idx_t = E_idx[:, t : t + 1]
                     h_E_t = h_E[:, t : t + 1]
@@ -444,7 +438,7 @@ class ProteinMPNN(torch.nn.Module):
                     total_logits += symmetry_weights[t] * logits
 
                 probs = torch.nn.functional.softmax(
-                    (total_logits + bias_t) / temperature, dim=-1
+                    (total_logits + total_bias) / temperature, dim=-1
                 )  # [B,21]
                 probs_sample = probs[:, :20] / torch.sum(
                     probs[:, :20], dim=-1, keepdim=True
@@ -508,17 +502,13 @@ class ProteinMPNN(torch.nn.Module):
             decoding_order = torch.argsort(
                 (order_mask + 0.0001) * (torch.abs(randn))
             )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+            rank = torch.argsort(decoding_order, dim=1)  # [B, L]
             E_idx = E_idx.repeat(B_decoder, 1, 1)
-            permutation_matrix_reverse = torch.nn.functional.one_hot(
-                decoding_order, num_classes=L
-            ).float()
-            order_mask_backward = torch.einsum(
-                "ij, biq, bjp->bqp",
-                (1 - torch.triu(torch.ones(L, L, device=device))),
-                permutation_matrix_reverse,
-                permutation_matrix_reverse,
-            )
-            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            rank_expanded = rank.expand(B_decoder, L)
+            rank_nbrs = gather_nodes(
+                rank_expanded.unsqueeze(-1).float(), E_idx
+            ).squeeze(-1)
+            mask_attend = (rank_nbrs < rank_expanded.float().unsqueeze(-1)).float().unsqueeze(-1)
             mask_1D = mask.view([B, L, 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1.0 - mask_attend)
@@ -584,17 +574,13 @@ class ProteinMPNN(torch.nn.Module):
             (chain_mask + 0.0001) * (torch.abs(randn))
         )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
         if len(symmetry_list_of_lists[0]) == 0 and len(symmetry_list_of_lists) == 1:
+            rank = torch.argsort(decoding_order, dim=1)  # [B, L]
             E_idx = E_idx.repeat(B_decoder, 1, 1)
-            permutation_matrix_reverse = torch.nn.functional.one_hot(
-                decoding_order, num_classes=L
-            ).float()
-            order_mask_backward = torch.einsum(
-                "ij, biq, bjp->bqp",
-                (1 - torch.triu(torch.ones(L, L, device=device))),
-                permutation_matrix_reverse,
-                permutation_matrix_reverse,
-            )
-            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            rank_expanded = rank.expand(B_decoder, L)
+            rank_nbrs = gather_nodes(
+                rank_expanded.unsqueeze(-1).float(), E_idx
+            ).squeeze(-1)
+            mask_attend = (rank_nbrs < rank_expanded.float().unsqueeze(-1)).float().unsqueeze(-1)
             mask_1D = mask.view([B, L, 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1.0 - mask_attend)
@@ -612,16 +598,11 @@ class ProteinMPNN(torch.nn.Module):
                 list(itertools.chain(*new_decoding_order)), device=device
             )[None,].repeat(B, 1)
 
-            permutation_matrix_reverse = torch.nn.functional.one_hot(
-                decoding_order, num_classes=L
-            ).float()
-            order_mask_backward = torch.einsum(
-                "ij, biq, bjp->bqp",
-                (1 - torch.triu(torch.ones(L, L, device=device))),
-                permutation_matrix_reverse,
-                permutation_matrix_reverse,
-            )
-            mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
+            rank = torch.argsort(decoding_order, dim=1)  # [B, L]
+            rank_nbrs = gather_nodes(
+                rank.float().unsqueeze(-1), E_idx
+            ).squeeze(-1)
+            mask_attend = (rank_nbrs < rank.float().unsqueeze(-1)).float().unsqueeze(-1)
             mask_1D = mask.view([B, L, 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1.0 - mask_attend)
@@ -708,6 +689,13 @@ class ProteinFeaturesLigand(torch.nn.Module):
 
         self.norm_y_edges = torch.nn.LayerNorm(node_features)
         self.norm_y_nodes = torch.nn.LayerNorm(node_features)
+
+        self.register_buffer(
+            "_rbf_mu",
+            torch.linspace(2.0, 22.0, num_rbf).view(1, 1, 1, -1),
+            persistent=False,
+        )
+        self._rbf_sigma = (22.0 - 2.0) / num_rbf
 
         self.atom_context_num = atom_context_num
 
@@ -1158,24 +1146,15 @@ class ProteinFeaturesLigand(torch.nn.Module):
         return D_neighbors, E_idx
 
     def _rbf(self, D):
-        device = D.device
-        D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
-        D_mu = torch.linspace(D_min, D_max, D_count, device=device)
-        D_mu = D_mu.view([1, 1, 1, -1])
-        D_sigma = (D_max - D_min) / D_count
-        D_expand = torch.unsqueeze(D, -1)
-        RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
+        RBF = torch.exp(-(((D.unsqueeze(-1) - self._rbf_mu) / self._rbf_sigma) ** 2))
         return RBF
 
     def _get_rbf(self, A, B, E_idx):
+        B_nbrs = gather_nodes(B, E_idx)  # [batch, L, K, 3]
         D_A_B = torch.sqrt(
-            torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
-        )  # [B, L, L]
-        D_A_B_neighbors = gather_edges(D_A_B[:, :, :, None], E_idx)[
-            :, :, :, 0
-        ]  # [B,L,K]
-        RBF_A_B = self._rbf(D_A_B_neighbors)
-        return RBF_A_B
+            torch.sum((A[:, :, None, :] - B_nbrs) ** 2, -1) + 1e-6
+        )  # [batch, L, K]
+        return self._rbf(D_A_B)
 
     def forward(self, input_features):
         Y = input_features["Y"]
@@ -1353,6 +1332,13 @@ class ProteinFeatures(torch.nn.Module):
         self.edge_embedding = torch.nn.Linear(edge_in, edge_features, bias=False)
         self.norm_edges = torch.nn.LayerNorm(edge_features)
 
+        self.register_buffer(
+            "_rbf_mu",
+            torch.linspace(2.0, 22.0, num_rbf).view(1, 1, 1, -1),
+            persistent=False,
+        )
+        self._rbf_sigma = (22.0 - 2.0) / num_rbf
+
     def _dist(self, X, mask, eps=1e-6):
         mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
         dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
@@ -1365,24 +1351,15 @@ class ProteinFeatures(torch.nn.Module):
         return D_neighbors, E_idx
 
     def _rbf(self, D):
-        device = D.device
-        D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
-        D_mu = torch.linspace(D_min, D_max, D_count, device=device)
-        D_mu = D_mu.view([1, 1, 1, -1])
-        D_sigma = (D_max - D_min) / D_count
-        D_expand = torch.unsqueeze(D, -1)
-        RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
+        RBF = torch.exp(-(((D.unsqueeze(-1) - self._rbf_mu) / self._rbf_sigma) ** 2))
         return RBF
 
     def _get_rbf(self, A, B, E_idx):
+        B_nbrs = gather_nodes(B, E_idx)  # [batch, L, K, 3]
         D_A_B = torch.sqrt(
-            torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
-        )  # [B, L, L]
-        D_A_B_neighbors = gather_edges(D_A_B[:, :, :, None], E_idx)[
-            :, :, :, 0
-        ]  # [B,L,K]
-        RBF_A_B = self._rbf(D_A_B_neighbors)
-        return RBF_A_B
+            torch.sum((A[:, :, None, :] - B_nbrs) ** 2, -1) + 1e-6
+        )  # [batch, L, K]
+        return self._rbf(D_A_B)
 
     def forward(self, input_features):
         X = input_features["X"]
@@ -1478,6 +1455,13 @@ class ProteinFeaturesMembrane(torch.nn.Module):
         )
         self.norm_nodes = torch.nn.LayerNorm(node_features)
 
+        self.register_buffer(
+            "_rbf_mu",
+            torch.linspace(2.0, 22.0, num_rbf).view(1, 1, 1, -1),
+            persistent=False,
+        )
+        self._rbf_sigma = (22.0 - 2.0) / num_rbf
+
     def _dist(self, X, mask, eps=1e-6):
         mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
         dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
@@ -1490,24 +1474,15 @@ class ProteinFeaturesMembrane(torch.nn.Module):
         return D_neighbors, E_idx
 
     def _rbf(self, D):
-        device = D.device
-        D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
-        D_mu = torch.linspace(D_min, D_max, D_count, device=device)
-        D_mu = D_mu.view([1, 1, 1, -1])
-        D_sigma = (D_max - D_min) / D_count
-        D_expand = torch.unsqueeze(D, -1)
-        RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
+        RBF = torch.exp(-(((D.unsqueeze(-1) - self._rbf_mu) / self._rbf_sigma) ** 2))
         return RBF
 
     def _get_rbf(self, A, B, E_idx):
+        B_nbrs = gather_nodes(B, E_idx)  # [batch, L, K, 3]
         D_A_B = torch.sqrt(
-            torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
-        )  # [B, L, L]
-        D_A_B_neighbors = gather_edges(D_A_B[:, :, :, None], E_idx)[
-            :, :, :, 0
-        ]  # [B,L,K]
-        RBF_A_B = self._rbf(D_A_B_neighbors)
-        return RBF_A_B
+            torch.sum((A[:, :, None, :] - B_nbrs) ** 2, -1) + 1e-6
+        )  # [batch, L, K]
+        return self._rbf(D_A_B)
 
     def forward(self, input_features):
         X = input_features["X"]

@@ -89,6 +89,13 @@ def pack_side_chains(
     feature_dict["h_V"] = h_V
     feature_dict["h_E"] = h_E
     feature_dict["E_idx"] = E_idx
+
+    # Convert constant OpenFold lookup tables once before the loop
+    t_rigid_frame = torch.tensor(restype_rigid_group_default_frame, device=device)
+    t_atom14_to_rigid = torch.tensor(restype_atom14_to_rigid_group, device=device)
+    t_atom14_mask = torch.tensor(restype_atom14_mask, device=device)
+    t_atom14_pos = torch.tensor(restype_atom14_rigid_group_positions, device=device)
+
     for step in range(num_denoising_steps):
         mean, concentration, mix_logits = model_sc.decode(feature_dict)
         mix = D.Categorical(logits=mix_logits)
@@ -109,15 +116,15 @@ def pack_side_chains(
             torsion_dict["rigids"],
             torsion_dict["torsions_noised"],
             torsion_dict["aatype"],
-            torch.tensor(restype_rigid_group_default_frame, device=device),
+            t_rigid_frame,
         )
         xyz14_noised = feats.frames_and_literature_positions_to_atom14_pos(
             pred_frames,
             torsion_dict["aatype"],
-            torch.tensor(restype_rigid_group_default_frame, device=device),
-            torch.tensor(restype_atom14_to_rigid_group, device=device),
-            torch.tensor(restype_atom14_mask, device=device),
-            torch.tensor(restype_atom14_rigid_group_positions, device=device),
+            t_rigid_frame,
+            t_atom14_to_rigid,
+            t_atom14_mask,
+            t_atom14_pos,
         )
         xyz14_noised = xyz14_noised * feature_dict["X_m"][:, :, :, None]
         feature_dict["X"] = xyz14_noised
@@ -202,17 +209,18 @@ def make_torsion_features(feature_dict, repack_everything=True):
     torsions_noised[:, :, 3:] = random_sin_cos * mask_fix_sc + torsions_true * (
         1 - mask_fix_sc
     )
+    t_rigid_frame = torch.tensor(restype_rigid_group_default_frame, device=device)
     pred_frames = feats.torsion_angles_to_frames(
         rigids,
         torsions_noised,
         S_af2,
-        torch.tensor(restype_rigid_group_default_frame, device=device),
+        t_rigid_frame,
     )
-    
+
     xyz14_noised = feats.frames_and_literature_positions_to_atom14_pos(
         pred_frames,
         S_af2,
-        torch.tensor(restype_rigid_group_default_frame, device=device),
+        t_rigid_frame,
         torch.tensor(restype_atom14_to_rigid_group, device=device).long(),
         torch.tensor(restype_atom14_mask, device=device),
         torch.tensor(restype_atom14_rigid_group_positions, device=device),
@@ -473,6 +481,13 @@ class ProteinFeatures(nn.Module):
 
         self.norm_y_edges = nn.LayerNorm(node_features)
         self.norm_y_nodes = nn.LayerNorm(node_features)
+
+        self.register_buffer(
+            "_rbf_mu",
+            torch.linspace(lower_bound, upper_bound, num_rbf).view(1, 1, 1, -1),
+            persistent=False,
+        )
+        self._rbf_sigma = (upper_bound - lower_bound) / num_rbf
 
         self.periodic_table_features = torch.tensor(
             [
@@ -890,13 +905,8 @@ class ProteinFeatures(nn.Module):
         upper_bound=20.0,
         num_bins=16,
     ):
-        device = D.device
-        D_min, D_max, D_count = lower_bound, upper_bound, num_bins
-        D_mu = torch.linspace(D_min, D_max, D_count, device=device)
-        D_mu = D_mu.view(D_mu_shape)
-        D_sigma = (D_max - D_min) / D_count
-        D_expand = torch.unsqueeze(D, -1)
-        RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
+        D_mu = self._rbf_mu.view(D_mu_shape)
+        RBF = torch.exp(-(((D.unsqueeze(-1) - D_mu) / self._rbf_sigma) ** 2))
         return RBF
 
     def _get_rbf(
@@ -909,20 +919,11 @@ class ProteinFeatures(nn.Module):
         upper_bound=22.0,
         num_bins=16,
     ):
+        B_nbrs = gather_nodes(B, E_idx)  # [batch, L, K, 3]
         D_A_B = torch.sqrt(
-            torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
-        )  # [B, L, L]
-        D_A_B_neighbors = gather_edges(D_A_B[:, :, :, None], E_idx)[
-            :, :, :, 0
-        ]  # [B,L,K]
-        RBF_A_B = self._rbf(
-            D_A_B_neighbors,
-            D_mu_shape=D_mu_shape,
-            lower_bound=lower_bound,
-            upper_bound=upper_bound,
-            num_bins=num_bins,
-        )
-        return RBF_A_B
+            torch.sum((A[:, :, None, :] - B_nbrs) ** 2, -1) + 1e-6
+        )  # [batch, L, K]
+        return self._rbf(D_A_B, D_mu_shape=D_mu_shape)
 
     def features_encode(self, features):
         """
@@ -1095,27 +1096,22 @@ class ProteinFeatures(nn.Module):
         device = S.device
 
         B, L, _, _ = X.shape
+        K = E_idx.shape[2]
 
-        RBF_sidechain = []
         X_m_gathered = gather_nodes(X_m, E_idx)  # [B, L, K, 14]
 
-        for i in range(14):
-            for j in range(14):
-                rbf_features = self._get_rbf(
-                    X[:, :, i, :],
-                    X[:, :, j, :],
-                    E_idx,
-                    D_mu_shape=[1, 1, 1, -1],
-                    lower_bound=self.lower_bound,
-                    upper_bound=self.upper_bound,
-                    num_bins=self.num_rbf,
-                )
-                rbf_features = (
-                    rbf_features
-                    * X_m[:, :, i, None, None]
-                    * X_m_gathered[:, :, :, j, None]
-                )
-                RBF_sidechain.append(rbf_features)
+        # Vectorized 14x14 pairwise sidechain RBF (replaces 196-call double loop)
+        X_nbrs = gather_nodes(X.view(B, L, -1), E_idx).view(B, L, K, 14, 3)
+        # D[b,l,i,k,j] = ||X[b,l,i,:] - X_nbrs[b,l,k,j,:]||
+        D_all = torch.sqrt(
+            torch.sum(
+                (X[:, :, :, None, None, :] - X_nbrs[:, :, None, :, :, :]) ** 2, -1
+            ) + 1e-6
+        )  # [B, L, 14_i, K, 14_j]
+        RBF_all = self._rbf(D_all, D_mu_shape=[1, 1, 1, 1, 1, -1])  # [B, L, 14_i, K, 14_j, num_rbf]
+        RBF_all = RBF_all * X_m[:, :, :, None, None, None] * X_m_gathered[:, :, None, :, :, None]
+        # Permute to [B, L, K, 14_i, 14_j, num_rbf] then flatten to match original loop order
+        RBF_sidechain = RBF_all.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, L, K, -1)
 
         D_XY = torch.sqrt(
             torch.sum((X[:, :, :, None, :] - Y[:, :, None, :, :]) ** 2, -1) + 1e-6
@@ -1149,10 +1145,7 @@ class ProteinFeatures(nn.Module):
             [S_1h[:, :, None, :].repeat(1, 1, E_idx.shape[2], 1), S_1h_gathered], -1
         )  # [B, L, K, 42]
 
-        F = torch.cat(
-            tuple(RBF_sidechain), dim=-1
-        )  # [B,L,atom_context_num,14*14*num_rbf]
-        F = torch.cat([F, S_features], -1)
+        F = torch.cat([RBF_sidechain, S_features], -1)
         F = self.dec_edge_embedding1(F)
         F = self.dec_norm_edges1(F)
         return V, F
