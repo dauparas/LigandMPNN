@@ -511,6 +511,42 @@ def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
     return atom_coords_, atom_coords_m
 
 
+def strip_structure_extension(name: str) -> str:
+    """
+    Drop a trailing structure-file extension from a file name, so that outputs
+    are named after the structure rather than after the input file. Handles
+    both legacy PDB and mmCIF, optionally gzipped:
+    "4ZYR.cif" -> "4ZYR", "4ZYR.pdb.gz" -> "4ZYR".
+    """
+    if name.lower().endswith(".gz"):
+        name = name[: -len(".gz")]
+    for ext in (".pdb", ".ent", ".cif", ".mmcif"):
+        if name.lower().endswith(ext):
+            return name[: -len(ext)]
+    return name
+
+
+def parse_structure_file(input_path: str):
+    """
+    Load a structure as a ProDy AtomGroup, choosing the parser from the file
+    extension. Supports legacy PDB (.pdb, .ent) and mmCIF (.cif, .mmcif),
+    either of which may be gzipped.
+
+    mmCIF files carry two sets of chain identifiers: label_asym_id (the
+    mmCIF-internal one) and auth_asym_id (the author/PDB one, which is what
+    users see in PyMOL and pass to --chains_to_design). ProDy defaults to
+    label_asym_id, so unite_chains=True is set to make chain IDs match the
+    equivalent PDB file.
+    """
+    path = input_path.lower()
+    if path.endswith(".gz"):
+        path = path[: -len(".gz")]
+
+    if path.endswith((".cif", ".mmcif")):
+        return parseMMCIF(input_path, unite_chains=True)
+    return parsePDB(input_path)
+
+
 def parse_PDB(
     input_path: str,
     device: str = "cpu",
@@ -519,7 +555,8 @@ def parse_PDB(
     parse_atoms_with_zero_occupancy: bool = False
 ):
     """
-    input_path : path for the input PDB
+    input_path : path for the input structure; legacy PDB (.pdb/.ent) and
+                 mmCIF (.cif/.mmcif) are both accepted, optionally gzipped
     device: device for the torch.Tensor
     chains: a list specifying which chains need to be parsed; e.g. ["A", "B"]
     parse_all_atoms: if False parse only N,CA,C,O otherwise all 37 atoms
@@ -775,7 +812,7 @@ def parse_PDB(
             "NZ",
         ]
 
-    atoms = parsePDB(input_path)
+    atoms = parse_structure_file(input_path)
     if not parse_atoms_with_zero_occupancy:
         atoms = atoms.select("occupancy > 0")
     if chains:
