@@ -17,6 +17,7 @@ from data_utils import (
     restype_1to3,
     restype_int_to_str,
     restype_str_to_int,
+    strip_structure_extension,
     write_full_PDB,
 )
 from model_utils import ProteinMPNN
@@ -364,10 +365,8 @@ def main(args) -> None:
             other_bfactors = other_atoms.getBetas()
             other_atoms.setBetas(other_bfactors * 0.0)
 
-        # adjust input PDB name by dropping .pdb if it does exist
-        name = pdb[pdb.rfind("/") + 1 :]
-        if name[-4:] == ".pdb":
-            name = name[:-4]
+        # adjust input name by dropping the structure file extension
+        name = strip_structure_extension(pdb[pdb.rfind("/") + 1 :])
 
         with torch.no_grad():
             # run featurize to remap R_idx and add batch dimension
