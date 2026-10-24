@@ -850,6 +850,17 @@ def parse_PDB(
         Y_t = np.zeros([1], np.int32)
         Y_m = np.zeros([1], np.int32)
 
+    if Y.shape[0] == 0:
+        print(
+            "WARNING: no usable ligand/context atoms were found in "
+            + input_path
+            + "; the element column (PDB columns 77-78) is probably missing or lists only hydrogens. "
+            + "Running without ligand context."
+        )
+        Y = np.zeros([1, 3], np.float32)
+        Y_t = np.zeros([1], np.int32)
+        Y_m = np.zeros([1], np.int32)
+
     output_dict = {}
     output_dict["X"] = torch.tensor(X, device=device, dtype=torch.float32)
     output_dict["mask"] = torch.tensor(mask, device=device, dtype=torch.int32)
