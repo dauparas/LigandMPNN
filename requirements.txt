@@ -27,3 +27,4 @@ triton==2.2.0
 typing_extensions==4.10.0
 ml-collections==0.1.1
 dm-tree==0.1.8
+setuptools<81
